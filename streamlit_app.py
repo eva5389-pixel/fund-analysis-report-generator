@@ -15,6 +15,9 @@ from fund_analysis import (
 from report_builder import build_report
 
 
+MAPPING_CACHE_VERSION = "2026-09-07-02"
+
+
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
 st.title("基金分析報告產生器")
 st.caption("上傳淨值與持股資料，自動整理持股變化、題材曝險、風險、損益歸因及同類基金比較。")
@@ -31,7 +34,7 @@ def load_url(url: str):
 
 
 @st.cache_data(ttl="6h", max_entries=20, show_spinner=False)
-def load_moneydj_url(url: str):
+def load_moneydj_url(url: str, mapping_version: str):
     return load_moneydj_fund(url)
 
 
@@ -76,14 +79,14 @@ try:
         with st.spinner("正在讀取公開頁面與辨識表格…"):
             moneydj_url = next((item for item in urls if moneydj_fund_id(item)), None)
             if moneydj_url:
-                nav_df, holdings_df, url_descriptions = load_moneydj_url(moneydj_url)
+                nav_df, holdings_df, url_descriptions = load_moneydj_url(moneydj_url, MAPPING_CACHE_VERSION)
                 primary_funds = nav_df["fund"].dropna().unique().tolist()
                 if peer_url.strip():
                     if not moneydj_fund_id(peer_url):
                         peer_load_error = "同類基金網址目前請貼 MoneyDJ 且含 ACPS 基金代碼的基金頁面。"
                     else:
                         try:
-                            peer_nav, peer_holdings, peer_descriptions = load_moneydj_url(peer_url.strip())
+                            peer_nav, peer_holdings, peer_descriptions = load_moneydj_url(peer_url.strip(), MAPPING_CACHE_VERSION)
                             nav_df = pd.concat([nav_df, peer_nav], ignore_index=True).drop_duplicates(["fund", "date"], keep="last")
                             holdings_df = pd.concat([holdings_df, peer_holdings], ignore_index=True).drop_duplicates(
                                 ["fund", "date", "ticker"], keep="last"

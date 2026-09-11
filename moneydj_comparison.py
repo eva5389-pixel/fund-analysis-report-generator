@@ -79,7 +79,7 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id):
 def load_comparison_fund(url):
     fund_id=moneydj_fund_id(url)
     if not fund_id: raise ValueError('請貼上支援的 MoneyDJ 基金完整網址。')
-    route='wb' if fund_id.startswith('SHZ') else 'wr'
+    route='wr' if fund_id.startswith('ACPS') else 'wb'
     urls=[f'https://tcbbankfund.moneydj.com/w/{route}/{route}{n:02d}.djhtm?a={fund_id}' for n in (1,2,4)]
     profile=read_url_tables(urls[0]);nav=read_url_tables(urls[1])
     try:holdings=read_url_tables(urls[2])

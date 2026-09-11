@@ -13,6 +13,17 @@ class MoneyDJTests(unittest.TestCase):
         self.assertEqual(moneydj_fund_id('https://tcbbankfund.moneydj.com/w/wb/wb01.djhtm?a=SHZ71-2456'),'SHZ71-2456')
         self.assertEqual(moneydj_fund_id('https://tcbbankfund.moneydj.com/w/wr/wr01.djhtm?a=ACPS38-5818'),'ACPS38-5818')
         self.assertIsNone(moneydj_fund_id('https://moneydj.com.evil.example/?a=SHZ71-2456'))
+    def test_other_offshore_provider_ids(self):
+        for code in ('IS^04-0104', 'ISZ04-0104', 'SH^71-2456'):
+            expected=code.replace('^','Z')
+            self.assertEqual(moneydj_fund_id('https://tcbbankfund.moneydj.com/main.html?sUrl='+quote('$W$WB$WB02]DJHTM{A}'+code)),expected)
+            self.assertEqual(moneydj_fund_id('https://tcbbankfund.moneydj.com/w/wb/wb02.djhtm?a='+code),expected)
+        from unittest.mock import patch
+        from moneydj_comparison import load_comparison_fund
+        with patch('moneydj_comparison.read_url_tables', return_value=[]) as read, patch('moneydj_comparison.parse_pages', return_value=(None,None,[])):
+            load_comparison_fund('https://tcbbankfund.moneydj.com/main.html?sUrl=$W$WB$WB02]DJHTM{A}IS^04-0104')
+            self.assertEqual(read.call_args_list[0].args[0], 'https://tcbbankfund.moneydj.com/w/wb/wb01.djhtm?a=ISZ04-0104')
+
     def test_all_nav_tables_anchor_and_missing_size(self):
         profile=[pd.DataFrame([['基金名稱','測試美元基金'],['計價幣別','美元']]),pd.DataFrame({'淨值日期':['2026/01/05']})]
         nav=[pd.DataFrame({'日期':['01/05','01/02'],'淨值':[11,10.9]}),pd.DataFrame({'日期':['12/31'],'淨值':[10.8]})]

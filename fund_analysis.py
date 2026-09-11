@@ -199,7 +199,7 @@ def moneydj_fund_id(url: str) -> str | None:
     host = (urlparse(decoded).hostname or '').lower()
     if host != 'moneydj.com' and not host.endswith('.moneydj.com'):
         return None
-    match = re.search(r"(?<![A-Za-z0-9])((?:ACPS|SHZ)\d+(?:-[A-Za-z0-9]+)?)(?![A-Za-z0-9])", decoded, flags=re.IGNORECASE)
+    match = re.search(r"(?<![A-Za-z0-9])((?:ACPS|[A-Z]{2}Z)\d+(?:-[A-Za-z0-9]+)?)(?![A-Za-z0-9])", decoded, flags=re.IGNORECASE)
     return match.group(1).upper() if match else None
 
 
@@ -263,7 +263,7 @@ def load_moneydj_fund(url: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     fund_id = moneydj_fund_id(url)
     if not fund_id:
         raise ValueError("MoneyDJ 網址中找不到 ACPS 基金代碼。")
-    if fund_id.startswith("SHZ"):
+    if not fund_id.startswith("ACPS"):
         from moneydj_comparison import load_comparison_fund
         nav, holdings, descriptions = load_comparison_fund(url)
         return normalize_nav(nav), normalize_holdings(holdings), descriptions

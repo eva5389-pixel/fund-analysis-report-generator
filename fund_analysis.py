@@ -34,6 +34,14 @@ HOLDING_ALIASES = {
 
 
 MONEYDJ_HOLDING_MAP = {
+    "mtar technologies": ("MTAR TECHNOLOGIES", "精密工程製造", "潔淨能源與精密零組件"),
+    "高力": ("8996.TW", "熱交換與能源設備", "液冷散熱與燃料電池零組件"),
+    "sterlite technologies": ("STERLITE TECHNOLOGIES", "光纖線纜", "光纖通訊與資料中心連接"),
+    "aehr test systems": ("AEHR", "半導體測試設備", "晶片測試與老化測試"),
+    "yuanjie semiconductor": ("YUANJIE SEMICONDUCTOR", "光半導體", "光通訊雷射晶片"),
+    "robotechnik": ("ROBOTECHNIK", "自動化設備", "智慧製造與光伏自動化設備"),
+    "lumentum": ("LITE", "光通訊元件", "光通訊與雷射元件"),
+    "聯亞": ("3081.TWO", "光半導體", "光通訊磊晶材料"),
     "amazon": ("AMZN", "電子商務與雲端服務", "電商消費與雲端運算"),
     "nebius": ("NBIS", "AI雲端基礎設施", "GPU雲端與AI運算"),
     "tesla": ("TSLA", "電動車與能源", "電動車與儲能"),

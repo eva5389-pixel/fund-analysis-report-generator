@@ -8,6 +8,15 @@ CURRENCY_NAMES={'美元':'USD','美金':'USD','新台幣':'TWD','台幣':'TWD','
 IDENTITIES={'sk hynix':('000660.KS','記憶體','DRAM與HBM'),'nvidia':('NVDA','半導體設計','AI運算與資料中心'),'broadcom':('AVGO','半導體設計','AI網路與客製化晶片'),'samsung electronics':('005930.KS','半導體','記憶體與電子裝置'),'lam research':('LRCX','半導體設備','半導體製程設備'),'apple inc':('AAPL','消費電子','行動裝置與服務'),'taiwan semiconductor':('TSM','晶圓代工','AI先進製程'),'intel':('INTC','半導體','處理器與晶圓製造'),'alphabet':('GOOGL','網路服務','雲端與網路服務')}
 
 
+def holding_identity(name):
+    # Match English company words, not substrings such as Intel in Intelligent.
+    text=str(name).lower()
+    for keyword,value in IDENTITIES.items():
+        if re.search(r'(?<![a-z0-9])'+re.escape(keyword)+r'(?![a-z0-9])',text):
+            return value
+    return _holding_identity(name)
+
+
 def parse_pages(profile_tables, nav_tables, holding_tables, fund_id):
     profile={}
     for table in profile_tables:
@@ -66,7 +75,7 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id):
                 for nc,wc in zip(names,weights):
                     for holding,weight in zip(table[nc],_numeric_percent(table[wc])):
                         if pd.isna(weight) or pd.isna(holding): continue
-                        identity=next((value for keyword,value in IDENTITIES.items() if keyword in str(holding).lower()),_holding_identity(str(holding)))
+                        identity=holding_identity(holding)
                         rows.append(dict(date=holding_date,fund=name,name=str(holding),ticker=identity[0],sector=identity[1],theme=identity[2],weight=float(weight)))
     else: warnings.append('持股暫時無法取得；仍可比較淨值績效。')
     holdings=pd.DataFrame(rows,columns=columns).drop_duplicates(['date','fund','name'])

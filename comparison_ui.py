@@ -9,7 +9,7 @@ import streamlit as st
 
 from auto_metadata import infer_metadata, fetch_fx
 from fund_analysis import moneydj_fund_id, read_table, _holding_identity
-from moneydj_comparison import load_comparison_fund
+from moneydj_comparison import load_comparison_fund, holding_identity
 from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare, conclusions, demo_data,
                                endpoint_rates, read_fx, read_nav, report_html, theme_comparison)
 
@@ -102,8 +102,8 @@ def render_comparison():
     if not holdings.empty and {'name','theme'} <= set(holdings):
         holdings=holdings.copy()
         for idx,row in holdings.iterrows():
-            if pd.isna(row['theme']) or str(row['theme']) in ('其他／待確認','未分類','其他',''):
-                ticker,sector,theme=_holding_identity(row['name'])
+            if source_mode=='MoneyDJ 網址' or pd.isna(row['theme']) or str(row['theme']) in ('其他／待確認','未分類','其他',''):
+                ticker,sector,theme=holding_identity(row['name'])
                 if theme!='其他／待確認':
                     holdings.loc[idx,['ticker','sector','theme']]=[ticker,sector,theme]
     if source_mode == 'MoneyDJ 網址':

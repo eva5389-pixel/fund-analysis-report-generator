@@ -209,6 +209,17 @@ def render_comparison():
     else:
         st.dataframe(themes.pivot(index='投資題材',columns='基金',values='權重 %').reindex(columns=selected),column_config={f:st.column_config.NumberColumn(format='%.2f%%') for f in selected})
         st.caption('空白表示沒有該題材紀錄，不代表曝險一定為零；此表只涵蓋已揭露資料。')
+        st.markdown('#### 題材持股比例柱狀圖')
+        theme_order=themes.groupby('投資題材')['權重 %'].max().sort_values(ascending=False).index.tolist()
+        theme_chart=alt.Chart(themes).mark_bar().encode(
+            y=alt.Y('投資題材:N',sort=theme_order,title=None,axis=alt.Axis(labelLimit=320)),
+            yOffset=alt.YOffset('基金:N',sort=selected),
+            x=alt.X('權重 %:Q',title='占基金淨資產比例（%）',scale=alt.Scale(zero=True)),
+            color=alt.Color('基金:N',sort=selected,legend=alt.Legend(orient='bottom',labelLimit=350)),
+            tooltip=['基金:N','投資題材:N','持股日期:N',alt.Tooltip('權重 %:Q',format='.2f')]
+        ).properties(height=max(280,len(theme_order)*max(40,len(selected)*16)))
+        st.altair_chart(theme_chart)
+        st.caption('每種顏色代表一檔基金。以橫向柱狀呈現完整題材名稱；未揭露部位不補零、不放大至100%。')
         st.dataframe(coverage,hide_index=True)
         missing=set(selected)-set(coverage['基金'])
         if missing: st.warning('以下基金沒有期末以前的持股資料：'+'、'.join(sorted(missing)))

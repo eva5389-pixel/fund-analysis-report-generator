@@ -24,6 +24,14 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id):
         if '淨值日期' in table:
             full_dates=table['淨值日期'].astype(str).str.extract(r'(\d{4}/\d{1,2}/\d{1,2})')[0].dropna()
             if not full_dates.empty: anchor=pd.to_datetime(full_dates.iloc[0]);break
+    if anchor is None:
+        # Domestic profiles have no latest-NAV table. The NAV page's own end-date
+        # picker contains the year; never use the machine's current year.
+        for table in nav_tables:
+            page_text=table.attrs.get('source_text','')
+            match=re.search(r"eDate\s*=\s*\$\.datepicker\.formatDate\([\s\S]{0,180}?parseDate\(\s*['\"]yy-mm-dd['\"]\s*,\s*['\"](\d{4}-\d{1,2}-\d{1,2})['\"]",page_text)
+            if match:
+                anchor=pd.Timestamp(match[1]);break
     nav_frames=[]
     for table in nav_tables:
         if {'日期','淨值'} <= set(table): nav_frames.append(table[['日期','淨值']].copy())

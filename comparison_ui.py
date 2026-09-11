@@ -48,25 +48,48 @@ def render_comparison():
         except Exception as exc:
             st.error(f'檔案無法讀取：{exc}'); return
     elif source_mode == 'MoneyDJ 網址':
-        urls_text=st.text_area('貼上基金網址（每行一檔，可先加入一檔）',value='https://tcbbankfund.moneydj.com/main.html?sUrl=$W$WB$WB01]DJHTM{A}SH^71-2456',key='cmp_urls',help='支援合庫 MoneyDJ 境外 SH^／SHZ 及境內 ACPS 基金連結，最多10檔；要比較請加入至少2檔不同基金。')
-        urls=list(dict.fromkeys(u.strip() for u in urls_text.splitlines() if u.strip()))
-        if st.button('讀取比較基金',key='cmp_load_urls',type='primary'):
-            st.session_state.pop('cmp_loaded',None)
-            if not 1 <= len(urls) <= 10:
-                st.error('請輸入 1 至 10 個基金網址。')
-            elif any(not moneydj_fund_id(u) for u in urls):
-                st.error('請使用合庫 MoneyDJ 基金網址，支援 SH^／SHZ 及 ACPS 代碼。')
+        st.session_state.setdefault('cmp_fund_basket', {})
+        basket=st.session_state.cmp_fund_basket
+        if st.session_state.pop('cmp_clear_url',False):
+            st.session_state['cmp_single_url']=''
+        if st.session_state.get('cmp_add_notice'):
+            st.success(st.session_state.pop('cmp_add_notice'))
+        url=st.text_input('貼上一檔基金網址',key='cmp_single_url',placeholder='https://tcbbankfund.moneydj.com/main.html?...',
+            help='一次貼一個合庫 MoneyDJ 基金網址，按加入後再貼下一檔。支援境內與境外基金。')
+        if st.button('加入比較清單',key='cmp_add_url',type='primary'):
+            fund_id=moneydj_fund_id(url.strip())
+            if not fund_id:
+                st.error('請貼上一個有效的 MoneyDJ 基金完整網址。')
+            elif fund_id in basket:
+                st.info('這檔基金已在比較清單中，不會重複加入。')
+            elif len(basket)>=10:
+                st.warning('最多加入10檔基金，請先移除一檔。')
             else:
-                loaded=[]; held=[]; desc=[]
                 try:
-                    with st.spinner('正在讀取各基金資料…'):
-                        for u in dict((moneydj_fund_id(u), u) for u in urls).values():
-                            n,h,d=load_comparison_url(u); loaded.append(n); held.append(h); desc.extend([u]+d)
-                    st.session_state.cmp_loaded=(urls,pd.concat(loaded,ignore_index=True),pd.concat(held,ignore_index=True),desc)
-                except Exception as exc: st.error(f'讀取失敗：{exc}。可改用檔案上傳。')
-        data=st.session_state.get('cmp_loaded')
-        if not data or data[0]!=urls: return
-        _,nav_raw,holdings,descriptions=data
+                    with st.spinner('正在讀取這檔基金…'):
+                        n,h,d=load_comparison_url(url.strip())
+                        n=read_nav(n)
+                    basket[fund_id]=(n,h,[url.strip()]+d)
+                    st.session_state['cmp_selected']=[name for entry in basket.values() for name in entry[0].fund.unique()]
+                    st.session_state['cmp_add_notice']='已加入：'+'、'.join(n.fund.unique())
+                    st.session_state['cmp_clear_url']=True
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f'這檔基金加入失敗：{exc}。原本的比較清單已保留，可修正網址後重試。')
+        st.subheader(f'已加入基金（{len(basket)}/10）')
+        for fund_id,(n,h,d) in list(basket.items()):
+            left,right=st.columns([5,1])
+            left.write('、'.join(n.fund.unique()))
+            if right.button('移除',key='cmp_remove_'+fund_id):
+                del basket[fund_id]
+                st.session_state['cmp_selected']=[name for entry in basket.values() for name in entry[0].fund.unique()]
+                st.rerun()
+        if not basket:
+            st.info('先貼上一檔基金網址，按「加入比較清單」，再加入另一檔即可比較。')
+            return
+        nav_raw=pd.concat([entry[0] for entry in basket.values()],ignore_index=True)
+        holdings=pd.concat([entry[1] for entry in basket.values()],ignore_index=True)
+        descriptions=[description for entry in basket.values() for description in entry[2]]
     else:
         return
     if source_mode == 'MoneyDJ 網址':
@@ -76,7 +99,7 @@ def render_comparison():
     try: nav=read_nav(nav_raw)
     except ValueError as exc: st.error(str(exc)); return
     all_funds=sorted(nav.fund.unique())
-    selected=st.multiselect('選擇比較基金（2 至 10 檔）',all_funds,default=all_funds[:min(5,len(all_funds))],key='cmp_selected')
+    selected=st.multiselect('選擇比較基金（2 至 10 檔）',all_funds,default=None if 'cmp_selected' in st.session_state else all_funds[:min(5,len(all_funds))],key='cmp_selected')
     if not 2<=len(selected)<=10:
         st.info('請選擇 2 至 10 檔基金。'); return
     sub=nav[nav.fund.isin(selected)]

@@ -19,6 +19,12 @@ MAPPING_CACHE_VERSION = "2026-09-07-02"
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
+view = st.segmented_control("選擇分析功能", ["績效題材與匯率比較", "原有基金深度分析"], default="績效題材與匯率比較", key="analysis_view")
+if view == "績效題材與匯率比較":
+    from comparison_ui import render_comparison
+    render_comparison()
+    st.stop()
+
 st.title("基金分析報告產生器")
 st.caption("上傳淨值與持股資料，自動整理持股變化、題材曝險、風險、損益歸因及同類基金比較。")
 

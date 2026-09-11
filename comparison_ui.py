@@ -7,6 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from auto_metadata import infer_metadata, fetch_fx
 from fund_analysis import moneydj_fund_id, read_table
 from moneydj_comparison import load_comparison_fund
 from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare, conclusions, demo_data,
@@ -16,6 +17,11 @@ from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare
 @st.cache_data(ttl=3600, max_entries=30, show_spinner=False)
 def load_comparison_url(url):
     return load_comparison_fund(url)
+
+
+@st.cache_data(ttl=3600, max_entries=50, show_spinner=False)
+def load_auto_fx(currencies, start, end):
+    return fetch_fx(currencies, start, end)
 
 
 def render_comparison():
@@ -110,15 +116,12 @@ def render_comparison():
     try: actual_start,actual_end=common_period(nav,selected,start,end)
     except ValueError as exc: st.error(str(exc)); return
     st.caption(f'實際共同淨值日期：{actual_start:%Y/%m/%d} 至 {actual_end:%Y/%m/%d}；匯率必須對應這兩天。')
-    meta=[]
-    for fund in selected:
-        currencies=nav.loc[nav.fund==fund,'currency'].dropna().astype(str).str.upper().unique() if 'currency' in nav else []
-        currency=currencies[0] if len(currencies)==1 and currencies[0] in CURRENCIES else '請確認'
-        meta.append({'基金':fund,'級別幣別':currency,'報酬口徑':BASIS[0] if sample else '未確認','避險級別':'未確認'})
-    st.subheader('確認基金級別與報酬口徑')
+    meta=[infer_metadata(nav,fund,moneydj=source_mode=='MoneyDJ 網址',sample=sample) for fund in selected]
+    st.subheader('自動判讀基金級別與報酬口徑')
+    st.caption('已依資料來源自動帶入，可直接修改。未明示的避險級別保留未確認，不影響依淨值計算匯率報酬。')
     st.caption('填淨值的計價幣別，不要填底層持股幣別。避險級別的基金內部避險已反映在淨值，不重複調整。')
     source_id=sha256((nav.to_csv(index=False)+repr(selected)).encode()).hexdigest()[:10]
-    meta=st.data_editor(pd.DataFrame(meta),hide_index=True,disabled=['基金'],key='cmp_meta_'+source_id,
+    meta=st.data_editor(pd.DataFrame(meta),hide_index=True,disabled=['基金','判讀依據'],key='cmp_meta_v2_'+source_id,
         column_config={'級別幣別':st.column_config.SelectboxColumn(options=['請確認']+CURRENCIES,required=True),
                        '報酬口徑':st.column_config.SelectboxColumn(options=BASIS,required=True),
                        '避險級別':st.column_config.SelectboxColumn(options=['未確認','避險級別','非避險級別'],required=True)})
@@ -127,9 +130,18 @@ def render_comparison():
     currencies=sorted(set(meta['級別幣別'])|{'USD','TWD','JPY'})
     st.subheader('期初與期末匯率')
     st.write('統一填「1 單位該幣別＝多少台幣」，例如 USD 匯率 32 代表 1 美元可換 32 台幣。系統會同時計算台幣、美元及日幣結果。JPY 請填 1 日圓兌台幣，例如 0.22，不是 100 日圓的報價。')
-    fx_mode=st.segmented_control('匯率輸入方式',['手動輸入','匯率檔上傳'],default='手動輸入',key='cmp_fx_mode')
+    fx_mode=st.segmented_control('匯率輸入方式',['自動取得','手動輸入','匯率檔上傳'],default='手動輸入' if sample else '自動取得',key='cmp_fx_mode_v2')
     rates=None
-    if fx_mode=='匯率檔上傳':
+    fx_source=''
+    if fx_mode=='自動取得':
+        try:
+            with st.spinner('正在取得比較起訖日匯率…'):
+                rates,fx_source=load_auto_fx(tuple(currencies),actual_start,actual_end)
+            st.dataframe(rates,hide_index=True)
+            st.caption('Frankfurter 歷史參考匯率，已換算成 1 單位外幣兌台幣；非銀行實際買賣成交價。')
+        except Exception:
+            st.warning('暫時無法取得完整同日匯率，請切換手動輸入或匯率檔上傳；不會套用其他日期。')
+    elif fx_mode=='匯率檔上傳':
         f=st.file_uploader('匯率資料（CSV／Excel）',type=['csv','xlsx','xls'],key='cmp_fx_upload')
         st.caption('欄位：日期、幣別、台幣匯率。需涵蓋實際共同淨值起訖日；不自動套用其他日期。')
         if f:
@@ -144,7 +156,7 @@ def render_comparison():
         rates=st.data_editor(defaults,disabled=['幣別'],hide_index=True,key=f'cmp_rates_{sample}_{actual_start}_{actual_end}_{"_".join(currencies)}',
             column_config={c:st.column_config.NumberColumn(format='%.6f',min_value=0.000001,required=True) for c in ['期初匯率','期末匯率']})
     if rates is None: return
-    sources=st.text_area('資料來源與匯率報價來源',value='模擬資料（非市場報價）' if sample else '\n'.join(descriptions),key='cmp_sources_'+source_id)
+    sources=st.text_area('資料來源與匯率報價來源',value='模擬資料（非市場報價）' if sample else '\n'.join(descriptions+[fx_source]),key='cmp_sources_v2_'+source_id+'_'+str(actual_start)+'_'+str(actual_end)+'_'+str(fx_mode))
     notes=st.text_area('報告補充說明',key='cmp_notes',placeholder='例如：配息處理方式、幣別避險資訊、資料時點差異')
     if not sample and not st.checkbox('已確認基金幣別、報酬口徑與同日匯率來源',key='cmp_confirm_'+source_id): return
     try:

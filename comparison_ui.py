@@ -7,20 +7,21 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from fund_analysis import load_moneydj_fund, moneydj_fund_id, read_table
+from fund_analysis import moneydj_fund_id, read_table
+from moneydj_comparison import load_comparison_fund
 from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare, conclusions, demo_data,
                                endpoint_rates, read_fx, read_nav, report_html, theme_comparison)
 
 
 @st.cache_data(ttl=3600, max_entries=30, show_spinner=False)
 def load_comparison_url(url):
-    return load_moneydj_fund(url)
+    return load_comparison_fund(url)
 
 
 def render_comparison():
     st.header('基金績效題材與匯率比較')
     st.write('同時比較原幣、台幣、美元及日幣報酬，拆解匯率影響，並列持股題材與資料涵蓋率。')
-    source_mode = st.segmented_control('比較資料來源', ['示範資料','檔案上傳','MoneyDJ 網址'], default='示範資料', key='cmp_source')
+    source_mode = st.segmented_control('比較資料來源', ['MoneyDJ 網址','檔案上傳','示範資料'], default='MoneyDJ 網址', key='cmp_source')
     sample = source_mode == '示範資料'
     nav_raw = holdings = pd.DataFrame()
     descriptions=[]
@@ -47,19 +48,19 @@ def render_comparison():
         except Exception as exc:
             st.error(f'檔案無法讀取：{exc}'); return
     elif source_mode == 'MoneyDJ 網址':
-        urls_text=st.text_area('基金網址（每行一檔，2 至 10 檔）',key='cmp_urls',help='沿用原系統 MoneyDJ ACPS 基金網址匯入；其他基金可使用檔案上傳。')
+        urls_text=st.text_area('貼上基金網址（每行一檔，可先加入一檔）',value='https://tcbbankfund.moneydj.com/main.html?sUrl=$W$WB$WB01]DJHTM{A}SH^71-2456',key='cmp_urls',help='支援合庫 MoneyDJ 境外 SH^／SHZ 及境內 ACPS 基金連結，最多10檔；要比較請加入至少2檔不同基金。')
         urls=list(dict.fromkeys(u.strip() for u in urls_text.splitlines() if u.strip()))
         if st.button('讀取比較基金',key='cmp_load_urls',type='primary'):
             st.session_state.pop('cmp_loaded',None)
-            if not 2 <= len(urls) <= 10:
-                st.error('請輸入 2 至 10 個基金網址。')
+            if not 1 <= len(urls) <= 10:
+                st.error('請輸入 1 至 10 個基金網址。')
             elif any(not moneydj_fund_id(u) for u in urls):
-                st.error('請使用含 ACPS 基金代碼的 MoneyDJ 網址。')
+                st.error('請使用合庫 MoneyDJ 基金網址，支援 SH^／SHZ 及 ACPS 代碼。')
             else:
                 loaded=[]; held=[]; desc=[]
                 try:
                     with st.spinner('正在讀取各基金資料…'):
-                        for u in urls:
+                        for u in dict((moneydj_fund_id(u), u) for u in urls).values():
                             n,h,d=load_comparison_url(u); loaded.append(n); held.append(h); desc.extend([u]+d)
                     st.session_state.cmp_loaded=(urls,pd.concat(loaded,ignore_index=True),pd.concat(held,ignore_index=True),desc)
                 except Exception as exc: st.error(f'讀取失敗：{exc}。可改用檔案上傳。')
@@ -68,6 +69,10 @@ def render_comparison():
         _,nav_raw,holdings,descriptions=data
     else:
         return
+    if source_mode == 'MoneyDJ 網址':
+        st.success('已讀取：'+'、'.join(nav_raw.fund.unique()))
+        with st.expander('基金來源與資料日期'):
+            for description in descriptions: st.write(description)
     try: nav=read_nav(nav_raw)
     except ValueError as exc: st.error(str(exc)); return
     all_funds=sorted(nav.fund.unique())

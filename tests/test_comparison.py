@@ -58,6 +58,8 @@ class ComparisonTests(unittest.TestCase):
         from streamlit.testing.v1 import AppTest
         app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'streamlit_app.py')).run(timeout=30)
         self.assertFalse(app.exception)
+        app.session_state['cmp_source']='示範資料'
+        app.run(timeout=30)
         self.assertFalse(app.error)
         app.button(key='cmp_prepare').click().run()
         self.assertEqual(len(app.get('download_button')),3)

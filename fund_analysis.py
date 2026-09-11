@@ -6,7 +6,7 @@ import re
 import socket
 import time
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, unquote
 
 import numpy as np
 import pandas as pd
@@ -166,6 +166,10 @@ def read_url_tables(url: str, max_bytes: int = 12_000_000) -> list[pd.DataFrame]
     tables = pd.read_html(io.StringIO(text))
     if not tables:
         raise ValueError("頁面中找不到可讀取的表格。")
+    # Keep the page's dated labels so importers do not invent a holdings date.
+    from lxml import html as lxml_html
+    if tables:
+        tables[0].attrs['source_text'] = lxml_html.fromstring(text).text_content()
     return tables
 
 
@@ -191,9 +195,11 @@ def classify_url_tables(tables: list[pd.DataFrame]) -> tuple[pd.DataFrame, pd.Da
 
 
 def moneydj_fund_id(url: str) -> str | None:
-    if "moneydj.com" not in url.lower():
+    decoded = unquote(str(url)).replace('^', 'Z')
+    host = (urlparse(decoded).hostname or '').lower()
+    if host != 'moneydj.com' and not host.endswith('.moneydj.com'):
         return None
-    match = re.search(r"(ACPS\d+(?:-[A-Za-z0-9]+)?)", url, flags=re.IGNORECASE)
+    match = re.search(r"(?<![A-Za-z0-9])((?:ACPS|SHZ)\d+(?:-[A-Za-z0-9]+)?)(?![A-Za-z0-9])", decoded, flags=re.IGNORECASE)
     return match.group(1).upper() if match else None
 
 
@@ -257,6 +263,10 @@ def load_moneydj_fund(url: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     fund_id = moneydj_fund_id(url)
     if not fund_id:
         raise ValueError("MoneyDJ 網址中找不到 ACPS 基金代碼。")
+    if fund_id.startswith("SHZ"):
+        from moneydj_comparison import load_comparison_fund
+        nav, holdings, descriptions = load_comparison_fund(url)
+        return normalize_nav(nav), normalize_holdings(holdings), descriptions
     base = "https://tcbbankfund.moneydj.com/w/wr"
     profile_url = f"{base}/wr01.djhtm?a={fund_id}"
     nav_url = f"{base}/wr02.djhtm?a={fund_id}"

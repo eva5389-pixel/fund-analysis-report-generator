@@ -8,7 +8,7 @@ class ComparisonTests(unittest.TestCase):
         self.start=pd.Timestamp('2025-01-01'); self.end=pd.Timestamp('2026-01-01')
         self.nav=read_nav(pd.DataFrame({'日期':[self.start,self.end]*2,'基金':['美元基金']*2+['台幣基金']*2,'淨值':[100,110,100,110]}))
         self.meta=pd.DataFrame({'基金':['美元基金','台幣基金'],'級別幣別':['USD','TWD'],'報酬口徑':[BASIS[0]]*2,'避險級別':['避險級別','非避險級別']})
-        self.rates=pd.DataFrame({'幣別':['USD','TWD'],'期初匯率':[32.,1.],'期末匯率':[30.,1.]})
+        self.rates=pd.DataFrame({'幣別':['USD','TWD','JPY'],'期初匯率':[32.,1.,.22],'期末匯率':[30.,1.,.20]})
     def test_conversion_and_hedged_class_not_double_counted(self):
         p=compare(self.nav,self.meta,self.rates,self.start,self.end).set_index('基金')
         self.assertAlmostEqual(p.loc['美元基金','台幣報酬 %'],3.125)
@@ -16,6 +16,18 @@ class ComparisonTests(unittest.TestCase):
         self.assertAlmostEqual(p.loc['美元基金','台幣匯率影響 百分點'],-6.875)
         self.assertAlmostEqual(p.loc['台幣基金','台幣報酬 %'],10)
         self.assertAlmostEqual(p.loc['台幣基金','美元報酬 %'],17.3333333333)
+    def test_jpy_conversion(self):
+        p=compare(self.nav,self.meta,self.rates,self.start,self.end).set_index('基金')
+        self.assertAlmostEqual(p.loc['美元基金','日幣報酬 %'],13.4375)
+        self.assertAlmostEqual(p.loc['美元基金','日幣匯率影響 百分點'],3.4375)
+        self.assertAlmostEqual(p.loc['台幣基金','日幣報酬 %'],21)
+        meta=self.meta.copy();meta.loc[0,'級別幣別']='JPY'
+        p=compare(self.nav,meta,self.rates,self.start,self.end).set_index('基金')
+        self.assertAlmostEqual(p.loc['美元基金','日幣報酬 %'],10)
+        self.assertAlmostEqual(p.loc['美元基金','日幣匯率影響 百分點'],0)
+        with self.assertRaises(ValueError):
+            compare(self.nav,self.meta,self.rates.iloc[:2],self.start,self.end)
+
     def test_shared_dates(self):
         extra=pd.DataFrame({'date':[pd.Timestamp('2024-12-01')],'fund':['美元基金'],'nav':[90]})
         a,b=common_period(pd.concat([self.nav,extra]),self.meta['基金'],pd.Timestamp('2024-12-01'),self.end)

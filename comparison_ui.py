@@ -19,7 +19,7 @@ def load_comparison_url(url):
 
 def render_comparison():
     st.header('基金績效題材與匯率比較')
-    st.write('同時比較原幣、台幣及美元報酬，拆解匯率影響，並列持股題材與資料涵蓋率。')
+    st.write('同時比較原幣、台幣、美元及日幣報酬，拆解匯率影響，並列持股題材與資料涵蓋率。')
     source_mode = st.segmented_control('比較資料來源', ['示範資料','檔案上傳','MoneyDJ 網址'], default='示範資料', key='cmp_source')
     sample = source_mode == '示範資料'
     nav_raw = holdings = pd.DataFrame()
@@ -96,9 +96,9 @@ def render_comparison():
                        '避險級別':st.column_config.SelectboxColumn(options=['未確認','避險級別','非避險級別'],required=True)})
     if not meta['級別幣別'].isin(CURRENCIES).all():
         st.info('請先在上表確認每檔基金的級別幣別，再設定匯率。'); return
-    currencies=sorted(set(meta['級別幣別'])|{'USD','TWD'})
+    currencies=sorted(set(meta['級別幣別'])|{'USD','TWD','JPY'})
     st.subheader('期初與期末匯率')
-    st.write('統一填「1 單位該幣別＝多少台幣」，例如 USD 匯率 32 代表 1 美元可換 32 台幣。系統會同時計算台幣與美元結果。')
+    st.write('統一填「1 單位該幣別＝多少台幣」，例如 USD 匯率 32 代表 1 美元可換 32 台幣。系統會同時計算台幣、美元及日幣結果。JPY 請填 1 日圓兌台幣，例如 0.22，不是 100 日圓的報價。')
     fx_mode=st.segmented_control('匯率輸入方式',['手動輸入','匯率檔上傳'],default='手動輸入',key='cmp_fx_mode')
     rates=None
     if fx_mode=='匯率檔上傳':
@@ -125,11 +125,11 @@ def render_comparison():
     except ValueError as exc: st.error(str(exc)); return
     st.subheader('績效與匯率比較結果')
     for line in conclusions(performance,themes): st.write(line)
-    columns=['基金','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','台幣匯率影響 百分點','美元匯率影響 百分點']
+    columns=['基金','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %','台幣匯率影響 百分點','美元匯率影響 百分點','日幣匯率影響 百分點']
     st.dataframe(performance[columns],hide_index=True,column_config={c:st.column_config.NumberColumn(format='%+.2f') for c in columns[2:]})
-    chart=performance.melt(id_vars=['基金'],value_vars=['原幣報酬 %','台幣報酬 %','美元報酬 %'],var_name='報酬基準',value_name='報酬 %')
+    chart=performance.melt(id_vars=['基金'],value_vars=['原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %'],var_name='報酬基準',value_name='報酬 %')
     st.altair_chart(alt.Chart(chart).mark_bar().encode(x=alt.X('基金:N',axis=alt.Axis(labelAngle=0)),xOffset='報酬基準:N',y=alt.Y('報酬 %:Q'),color='報酬基準:N',tooltip=['基金','報酬基準',alt.Tooltip('報酬 %:Q',format='.2f')]))
-    st.caption('原幣柱是不同計價幣別；請以台幣或美元柱作相同幣別的比較。匯率影響欄為百分點，已包含交互作用。')
+    st.caption('原幣柱是不同計價幣別；請以台幣、美元或日幣柱作相同幣別的比較。匯率影響欄為百分點，已包含交互作用。')
     st.subheader('投資題材配置')
     if themes.empty:
         st.info('未提供有效持股題材資料，績效與匯率比較仍可使用。')

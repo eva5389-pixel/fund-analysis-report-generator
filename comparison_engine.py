@@ -44,7 +44,7 @@ def read_fx(raw):
     if frame.duplicated(['date','currency']).any():
         raise ValueError('同一幣別同一天不可有重複匯率。')
     if (~frame.currency.isin(CURRENCIES)).any():
-        raise ValueError('匯率幣別須使用支援的三碼代碼，例如 USD、TWD。')
+        raise ValueError('匯率幣別須使用支援的三碼代碼，例如 USD、TWD、JPY。')
     if (frame.loc[frame.currency.eq('TWD'), 'twd_rate'] != 1).any():
         raise ValueError('TWD 對台幣匯率必須為 1。')
     return frame
@@ -53,7 +53,7 @@ def read_fx(raw):
 def endpoint_rates(fx, currencies, start, end):
     """Use exact, matching valuation dates. Never silently forward fill or interpolate."""
     rows = []
-    for currency in sorted(set(currencies) | {'USD', 'TWD'}):
+    for currency in sorted(set(currencies) | {'USD', 'TWD', 'JPY'}):
         vals = []
         for day in (start, end):
             if currency == 'TWD':
@@ -73,8 +73,8 @@ def compare(nav, metadata, rates, start, end):
     if (~metadata['級別幣別'].isin(CURRENCIES)).any():
         raise ValueError('請先確認每檔基金的級別幣別。')
     table = rates.set_index('幣別')
-    if table.index.duplicated().any() or not {'USD','TWD'} <= set(table.index):
-        raise ValueError('匯率設定需包含且不得重複 USD、TWD。')
+    if table.index.duplicated().any() or not {'USD','TWD','JPY'} <= set(table.index):
+        raise ValueError('匯率設定需包含且不得重複 USD、TWD、JPY。')
     values = table[['期初匯率','期末匯率']].apply(pd.to_numeric, errors='coerce')
     if values.isna().any().any() or not np.isfinite(values.to_numpy()).all() or (values <= 0).any().any():
         raise ValueError('請填入全部期初及期末匯率，且匯率必須大於零。')
@@ -91,13 +91,17 @@ def compare(nav, metadata, rates, start, end):
         local = float(series.loc[end] / series.loc[start] - 1)
         c0, c1 = values.loc[currency]
         usd0, usd1 = values.loc['USD']
+        jpy0, jpy1 = values.loc['JPY']
         twd_fx = c1 / c0 - 1
         usd_fx = (c1 / usd1) / (c0 / usd0) - 1
+        jpy_fx = (c1 / jpy1) / (c0 / jpy0) - 1
+        jpy = (1+local)*(1+jpy_fx)-1
         twd = (1+local)*(1+twd_fx)-1
         usd = (1+local)*(1+usd_fx)-1
         result.append({'基金':name, '級別幣別':currency, '報酬口徑':meta['報酬口徑'], '避險級別':meta['避險級別'],
             '期初淨值':float(series.loc[start]), '期末淨值':float(series.loc[end]),
-            '原幣報酬 %':local*100, '台幣報酬 %':twd*100, '美元報酬 %':usd*100,
+            '原幣報酬 %':local*100, '台幣報酬 %':twd*100, '美元報酬 %':usd*100, '日幣報酬 %':jpy*100,
+            '對日幣匯率變動 %':jpy_fx*100, '日幣匯率影響 百分點':(jpy-local)*100,
             '對台幣匯率變動 %':twd_fx*100, '台幣匯率影響 百分點':(twd-local)*100,
             '對美元匯率變動 %':usd_fx*100, '美元匯率影響 百分點':(usd-local)*100,
             '原幣觀測回撤 %':float((series/series.cummax()-1).min()*100), '淨值筆數':len(series)})
@@ -137,14 +141,14 @@ def theme_comparison(raw, funds, end):
 def conclusions(performance, themes):
     lines=[]
     if performance['報酬口徑'].nunique() == 1 and performance['報酬口徑'].iloc[0] != '未確認':
-        for basis in ['台幣','美元']:
+        for basis in ['台幣','美元','日幣']:
             col=f'{basis}報酬 %'; best=performance.loc[performance[col].idxmax()]
             ties=performance.loc[np.isclose(performance[col],best[col]),'基金'].tolist()
             lines.append(f'本次選定基金中，{basis}報酬最高為{"、".join(ties)}，區間報酬 {best[col]:+.2f}%。')
     else:
         lines.append('基金報酬口徑不同或尚未確認，僅並列數值，不作績效排名。')
     for _, row in performance.iterrows():
-        lines.append(f'{row["基金"]}原幣報酬 {row["原幣報酬 %"]:+.2f}%，匯率對台幣報酬影響 {row["台幣匯率影響 百分點"]:+.2f} 個百分點，對美元報酬影響 {row["美元匯率影響 百分點"]:+.2f} 個百分點。')
+        lines.append(f'{row["基金"]}原幣報酬 {row["原幣報酬 %"]:+.2f}%，匯率對台幣報酬影響 {row["台幣匯率影響 百分點"]:+.2f} 個百分點，對美元報酬影響 {row["美元匯率影響 百分點"]:+.2f} 個百分點，對日幣報酬影響 {row["日幣匯率影響 百分點"]:+.2f} 個百分點。')
     for fund in themes['基金'].unique():
         group=themes[themes['基金']==fund]; top=group.loc[group['權重 %'].idxmax()]
         lines.append(f'{fund}已揭露持股中，最大題材為{top["投資題材"]}，占基金 {top["權重 %"]:.2f}%；持股資料日 {top["持股日期"]}。')
@@ -152,12 +156,12 @@ def conclusions(performance, themes):
 
 
 METHOD = [
-    '換算報酬＝（1＋原幣報酬）×（期末換匯比率／期初換匯比率）－1。所有匯率均以1單位該幣別可換多少台幣輸入；美元報酬再透過同期USD/TWD交叉換算。',
+    '換算報酬＝（1＋原幣報酬）×（期末換匯比率／期初換匯比率）－1。所有匯率均以1單位該幣別可換多少台幣輸入；美元與日幣報酬分別透過同期USD/TWD與JPY/TWD交叉換算。JPY請填1日圓兌台幣，例如0.22，不是100日圓的報價。',
     '匯率影響以百分點表示，等於換算後報酬減原幣報酬，包含基金報酬與匯率的交互作用，不可直接相加兩個百分比。',
     '級別幣別是淨值的報價幣別，不是底層資產幣別。基金內部避險及其成本已反映於該級別淨值，不另扣一次；投資人自行換匯的效果仍須計入。',
     '含息還原淨值／累積型資料按再投資基礎比較；未還原的配息型淨值不含現金配息，不代表總報酬。報酬口徑須由使用者依來源確認。',
     '採所有選定基金皆有淨值的共同起訖日。匯率需與這兩日一致；同日資料仍可能採不同收盤時點。結果未扣投資人的申贖費、換匯價差、稅費及外部避險成本。',
-    '原幣觀測回撤只使用提供的淨值觀測點，稀疏月資料可能低估區間內回撤。僅提供期初、期末匯率時，不推算台幣／美元的日波動或回撤。',
+    '原幣觀測回撤只使用提供的淨值觀測點，稀疏月資料可能低估區間內回撤。僅提供期初、期末匯率時，不推算台幣／美元／日幣的日波動或回撤。',
     '題材為上傳分類或既有對照表標籤，不是未來報酬預測或正式績效歸因；每筆持股只歸一個題材，未揭露部位不視為現金。不同基金持股資料日期可能不同。'
 ]
 
@@ -166,10 +170,10 @@ def report_html(performance, themes, coverage, rates, start, end, sources, notes
     def table(df):
         if df.empty: return '<p>未提供資料。</p>'
         return df.to_html(index=False,escape=True,border=0,float_format=lambda v:f'{v:,.2f}')
-    perfcols=['基金','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %']
-    fxcols=['基金','台幣匯率影響 百分點','美元匯率影響 百分點']
+    perfcols=['基金','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %']
+    fxcols=['基金','台幣匯率影響 百分點','美元匯率影響 百分點','日幣匯率影響 百分點']
     sections=[('比較結論',''.join(f'<p>{escape(t)}</p>' for t in conclusions(performance,themes))),
-              ('原幣 台幣與美元績效',table(performance[perfcols])),
+              ('原幣 台幣 美元與日幣績效',table(performance[perfcols])),
               ('匯率拉抬與拖累',table(performance[fxcols])),
               ('淨值與報酬口徑',table(performance[['基金','期初淨值','期末淨值','報酬口徑','避險級別','原幣觀測回撤 %','淨值筆數']])),
               ('題材配置比較',table(themes)),('持股資料涵蓋率',table(coverage)),('期初與期末匯率',table(rates)),
@@ -187,5 +191,5 @@ def demo_data():
             nav.append(dict(date=day,fund=name,nav=100*(1+gain*i/(len(dates)-1)+.015*np.sin(i)),currency=currency))
         for theme,weight in themes:
             hold.append(dict(date=dates[-1],fund=name,theme=theme,weight=weight))
-    fx=pd.DataFrame([dict(currency=c,date=day,twd_rate=rate) for c,a,b in [('USD',32.,30.),('EUR',35.,34.)] for day,rate in [(dates[0],a),(dates[-1],b)]])
+    fx=pd.DataFrame([dict(currency=c,date=day,twd_rate=rate) for c,a,b in [('USD',32.,30.),('EUR',35.,34.),('JPY',.22,.20)] for day,rate in [(dates[0],a),(dates[-1],b)]])
     return pd.DataFrame(nav),pd.DataFrame(hold),fx

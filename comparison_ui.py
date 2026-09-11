@@ -7,6 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from risk_metadata import load_risk
 from auto_metadata import infer_metadata, fetch_fx
 from fund_analysis import moneydj_fund_id, read_table, _holding_identity
 from moneydj_comparison import load_comparison_fund, holding_identity
@@ -22,6 +23,11 @@ def load_comparison_url(url):
 @st.cache_data(ttl=3600, max_entries=50, show_spinner=False)
 def load_auto_fx(currencies, start, end):
     return fetch_fx(currencies, start, end)
+
+
+@st.cache_data(ttl=3600, max_entries=50, show_spinner=False)
+def cached_risk(url):
+    return load_risk(url)
 
 
 def render_comparison():
@@ -124,15 +130,24 @@ def render_comparison():
     try: actual_start,actual_end=common_period(nav,selected,start,end)
     except ValueError as exc: st.error(str(exc)); return
     st.caption(f'實際共同淨值日期：{actual_start:%Y/%m/%d} 至 {actual_end:%Y/%m/%d}；匯率必須對應這兩天。')
+    if source_mode=='MoneyDJ 網址':
+        nav=nav.copy()
+        for entry in basket.values():
+            try:
+                rating,risk_source=cached_risk(entry[2][0])
+                nav.loc[nav.fund.isin(entry[0].fund.unique()),'risk_level']=rating
+                if risk_source: descriptions.append('風險等級來源：'+risk_source)
+            except Exception:
+                pass
     meta=[infer_metadata(nav,fund,moneydj=source_mode=='MoneyDJ 網址',sample=sample) for fund in selected]
     st.subheader('自動判讀基金級別與報酬口徑')
-    st.caption('已依資料來源自動帶入，可直接修改。未明示的避險級別保留未確認，不影響依淨值計算匯率報酬。')
-    st.caption('填淨值的計價幣別，不要填底層持股幣別。避險級別的基金內部避險已反映在淨值，不重複調整。')
+    st.caption('已依資料來源自動帶入，可直接修改。風險等級取自來源公布的 RR1～RR5；查不到時可手動補填。')
+    st.caption('使用淨值的計價幣別。RR1～RR5 為風險報酬等級，供比較參考，不用來調整報酬。')
     source_id=sha256((nav.to_csv(index=False)+repr(selected)).encode()).hexdigest()[:10]
-    meta=st.data_editor(pd.DataFrame(meta),hide_index=True,disabled=['基金','判讀依據'],key='cmp_meta_v2_'+source_id,
+    meta=st.data_editor(pd.DataFrame(meta),hide_index=True,disabled=['基金','判讀依據'],key='cmp_meta_rr_'+source_id,
         column_config={'級別幣別':st.column_config.SelectboxColumn(options=['請確認']+CURRENCIES,required=True),
                        '報酬口徑':st.column_config.SelectboxColumn(options=BASIS,required=True),
-                       '避險級別':st.column_config.SelectboxColumn(options=['未確認','避險級別','非避險級別'],required=True)})
+                       '風險報酬等級':st.column_config.SelectboxColumn(options=['未確認','RR1','RR2','RR3','RR4','RR5'],required=True)})
     if not meta['級別幣別'].isin(CURRENCIES).all():
         st.info('請先在上表確認每檔基金的級別幣別，再設定匯率。'); return
     currencies=sorted(set(meta['級別幣別'])|{'USD','TWD','JPY'})

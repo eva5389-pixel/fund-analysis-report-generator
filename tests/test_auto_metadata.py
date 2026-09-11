@@ -4,15 +4,14 @@ import pandas as pd
 from auto_metadata import infer_metadata, fetch_fx
 
 class AutoTests(unittest.TestCase):
-    def test_evidence_and_unknown(self):
-        n=pd.DataFrame({'fund':['基金美元非避險'],'currency':['USD']})
-        m=infer_metadata(n,n.fund[0],moneydj=True)
-        self.assertEqual(m['避險級別'],'非避險級別')
-        self.assertEqual(m['報酬口徑'],'未還原淨值（不含配息）')
-        n['fund']='基金美元'
-        self.assertEqual(infer_metadata(n,n.fund[0])['避險級別'],'未確認')
-        n['fund']='基金美元避險'
-        self.assertEqual(infer_metadata(n,n.fund[0])['避險級別'],'避險級別')
+    def test_risk_evidence(self):
+        n=pd.DataFrame({'fund':['基金'],'currency':['TWD'],'risk_level':['RR5']})
+        self.assertEqual(infer_metadata(n,'基金')['風險報酬等級'],'RR5')
+        n['risk_level']=''
+        self.assertEqual(infer_metadata(n,'基金')['風險報酬等級'],'未確認')
+        from risk_metadata import parse_risk
+        self.assertEqual(parse_risk('風險報酬等級 RR5'),'RR5')
+        self.assertEqual(parse_risk('評等五星'),'未確認')
     def test_fx_inversion_and_exact_dates(self):
         def response(date):
             r=Mock(); r.url='https://api.frankfurter.dev/v2/rates'

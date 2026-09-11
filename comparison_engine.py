@@ -98,7 +98,7 @@ def compare(nav, metadata, rates, start, end):
         jpy = (1+local)*(1+jpy_fx)-1
         twd = (1+local)*(1+twd_fx)-1
         usd = (1+local)*(1+usd_fx)-1
-        result.append({'基金':name, '級別幣別':currency, '報酬口徑':meta['報酬口徑'], '避險級別':meta['避險級別'],
+        result.append({'基金':name, '級別幣別':currency, '報酬口徑':meta['報酬口徑'], '風險報酬等級':meta.get('風險報酬等級','未確認'),
             '期初淨值':float(series.loc[start]), '期末淨值':float(series.loc[end]),
             '原幣報酬 %':local*100, '台幣報酬 %':twd*100, '美元報酬 %':usd*100, '日幣報酬 %':jpy*100,
             '對日幣匯率變動 %':jpy_fx*100, '日幣匯率影響 百分點':(jpy-local)*100,
@@ -175,7 +175,7 @@ def report_html(performance, themes, coverage, rates, start, end, sources, notes
     sections=[('比較結論',''.join(f'<p>{escape(t)}</p>' for t in conclusions(performance,themes))),
               ('原幣 台幣 美元與日幣績效',table(performance[perfcols])),
               ('匯率拉抬與拖累',table(performance[fxcols])),
-              ('淨值與報酬口徑',table(performance[['基金','期初淨值','期末淨值','報酬口徑','避險級別','原幣觀測回撤 %','淨值筆數']])),
+              ('淨值與報酬口徑',table(performance[['基金','期初淨值','期末淨值','報酬口徑','風險報酬等級','原幣觀測回撤 %','淨值筆數']])),
               ('題材配置比較',table(themes)),('持股資料涵蓋率',table(coverage)),('期初與期末匯率',table(rates)),
               ('計算方式與資料限制',''.join(f'<p>{escape(t)}</p>' for t in METHOD)),
               ('資料來源與補充說明',f'<p>{escape(sources)}</p><p>{escape(notes)}</p>')]

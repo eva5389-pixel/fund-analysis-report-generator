@@ -34,6 +34,15 @@ HOLDING_ALIASES = {
 
 
 MONEYDJ_HOLDING_MAP = {
+    "amazon": ("AMZN", "電子商務與雲端服務", "電商消費與雲端運算"),
+    "nebius": ("NBIS", "AI雲端基礎設施", "GPU雲端與AI運算"),
+    "tesla": ("TSLA", "電動車與能源", "電動車與儲能"),
+    "modine": ("MOD", "熱管理設備", "資料中心冷卻與熱管理"),
+    "sumitomo electric": ("5802.T", "電線電纜與光通訊", "光纖通訊與電力線纜"),
+    "ajinomoto": ("2802.T", "食品與電子材料", "食品消費與ABF封裝材料"),
+    "carvana": ("CVNA", "汽車零售", "二手車電商"),
+    "allegro microsystems": ("ALGM", "類比與功率半導體", "車用與工業感測晶片"),
+    "coherent": ("COHR", "光電元件", "光通訊與雷射元件"),
     "advanced micro devices": ("AMD", "半導體設計", "AI運算與資料中心"),
     "台積電": ("2330.TW", "晶圓代工", "AI先進製程"),
     "台光電": ("2383.TW", "銅箔基板", "AI伺服器與高速傳輸"),

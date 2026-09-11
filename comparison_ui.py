@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from auto_metadata import infer_metadata, fetch_fx
-from fund_analysis import moneydj_fund_id, read_table
+from fund_analysis import moneydj_fund_id, read_table, _holding_identity
 from moneydj_comparison import load_comparison_fund
 from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare, conclusions, demo_data,
                                endpoint_rates, read_fx, read_nav, report_html, theme_comparison)
@@ -98,6 +98,14 @@ def render_comparison():
         descriptions=[description for entry in basket.values() for description in entry[2]]
     else:
         return
+    # Reclassify cached holdings too, preserving explicit user classifications.
+    if not holdings.empty and {'name','theme'} <= set(holdings):
+        holdings=holdings.copy()
+        for idx,row in holdings.iterrows():
+            if pd.isna(row['theme']) or str(row['theme']) in ('其他／待確認','未分類','其他',''):
+                ticker,sector,theme=_holding_identity(row['name'])
+                if theme!='其他／待確認':
+                    holdings.loc[idx,['ticker','sector','theme']]=[ticker,sector,theme]
     if source_mode == 'MoneyDJ 網址':
         st.success('已讀取：'+'、'.join(nav_raw.fund.unique()))
         with st.expander('基金來源與資料日期'):
@@ -171,6 +179,16 @@ def render_comparison():
     st.altair_chart(alt.Chart(chart).mark_bar().encode(x=alt.X('基金:N',axis=alt.Axis(labelAngle=0)),xOffset='報酬基準:N',y=alt.Y('報酬 %:Q'),color='報酬基準:N',tooltip=['基金','報酬基準',alt.Tooltip('報酬 %:Q',format='.2f')]))
     st.caption('原幣柱是不同計價幣別；請以台幣、美元或日幣柱作相同幣別的比較。匯率影響欄為百分點，已包含交互作用。')
     st.subheader('投資題材配置')
+    st.caption('題材依公司業務分類，非基金經理人的官方投資理由；多元業務以合併題材呈現，每筆持股只計一次權重。')
+    if not holdings.empty and {'name','theme'} <= set(holdings):
+        with st.expander('查看持股與題材分類對照'):
+            detail=holdings[holdings.fund.isin(selected)].copy()
+            if 'date' in detail:
+                detail['date']=pd.to_datetime(detail['date'],errors='coerce')
+                detail=detail[detail.date<=actual_end]
+                detail=detail[detail.date==detail.groupby('fund').date.transform('max')]
+            st.dataframe(detail[[c for c in ['fund','name','sector','theme','weight'] if c in detail]].rename(columns={'fund':'基金','name':'持股','sector':'產業','theme':'投資題材','weight':'權重 %'}),hide_index=True)
+
     if themes.empty:
         st.info('未提供有效持股題材資料，績效與匯率比較仍可使用。')
     else:

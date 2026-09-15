@@ -2,7 +2,7 @@
 import re
 import numpy as np
 import pandas as pd
-from fund_analysis import moneydj_fund_id, read_url_tables, _holding_identity, _numeric_percent
+from fund_analysis import moneydj_fund_id, moneydj_fund_route, read_url_tables, _holding_identity, _numeric_percent
 
 CURRENCY_NAMES={'美元':'USD','美金':'USD','新台幣':'TWD','台幣':'TWD','日圓':'JPY','日元':'JPY','日幣':'JPY','歐元':'EUR','英鎊':'GBP','澳幣':'AUD','澳元':'AUD','加幣':'CAD','港幣':'HKD','人民幣':'CNY','南非幣':'ZAR','瑞士法郎':'CHF','新加坡幣':'SGD','紐西蘭幣':'NZD'}
 IDENTITIES={'sk hynix':('000660.KS','記憶體','DRAM與HBM'),'nvidia':('NVDA','半導體設計','AI運算與資料中心'),'broadcom':('AVGO','半導體設計','AI網路與客製化晶片'),'samsung electronics':('005930.KS','半導體','記憶體與電子裝置'),'lam research':('LRCX','半導體設備','半導體製程設備'),'apple inc':('AAPL','消費電子','行動裝置與服務'),'taiwan semiconductor':('TSM','晶圓代工','AI先進製程'),'intel':('INTC','半導體','處理器與晶圓製造'),'alphabet':('GOOGL','網路服務','雲端與網路服務')}
@@ -88,7 +88,7 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id):
 def load_comparison_fund(url):
     fund_id=moneydj_fund_id(url)
     if not fund_id: raise ValueError('請貼上支援的 MoneyDJ 基金完整網址。')
-    route='wr' if fund_id.startswith('ACPS') else 'wb'
+    route=moneydj_fund_route(url)
     urls=[f'https://tcbbankfund.moneydj.com/w/{route}/{route}{n:02d}.djhtm?a={fund_id}' for n in (1,2,4)]
     profile=read_url_tables(urls[0]);nav=read_url_tables(urls[1])
     try:holdings=read_url_tables(urls[2])

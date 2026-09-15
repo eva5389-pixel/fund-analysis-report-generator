@@ -7,6 +7,24 @@ from moneydj_comparison import parse_pages
 URL='https://tcbbankfund.moneydj.com/main.html?sUrl=$W$WB$WB01]DJHTM{A}SH^71-2456'
 
 class MoneyDJTests(unittest.TestCase):
+    def test_domestic_provider_route_from_source_page(self):
+        from unittest.mock import patch
+        from moneydj_comparison import load_comparison_fund
+        from fund_analysis import load_moneydj_fund, moneydj_fund_route
+        profile=[pd.DataFrame([['基金名稱','元大新主流基金A不配息(台幣)'],['計價幣別','台幣']]),pd.DataFrame({'淨值日期':['2026/09/14']})]
+        nav=[pd.DataFrame({'日期':['09/14','09/11'],'淨值':[180.08,179.0]})]
+        for path in ('$W$WR$WR01]DJHTM{A}ACYT11-5407', quote('$W$WR$WR01]DJHTM{A}ACYT11-5407')):
+            url='https://tcbbankfund.moneydj.com/main.html?sUrl='+path
+            for loader in (load_comparison_fund, load_moneydj_fund):
+                with patch('moneydj_comparison.read_url_tables', side_effect=[profile,nav,[]]) as read:
+                    result,_,_=loader(url)
+                    self.assertEqual(len(result),2)
+                    self.assertEqual(result.fund.iloc[0],'元大新主流基金A不配息(台幣)')
+                    self.assertEqual([c.args[0] for c in read.call_args_list],[
+                        f'https://tcbbankfund.moneydj.com/w/wr/wr{n:02d}.djhtm?a=ACYT11-5407' for n in (1,2,4)])
+        self.assertEqual(moneydj_fund_route('https://tcbbankfund.moneydj.com/w/wr/wr01.djhtm?a=ACYT11-5407'),'wr')
+        self.assertEqual(moneydj_fund_route(URL),'wb')
+
     def test_wrapper_direct_and_encoded_ids(self):
         self.assertEqual(moneydj_fund_id(URL),'SHZ71-2456')
         self.assertEqual(moneydj_fund_id('https://tcbbankfund.moneydj.com/main.html?sUrl='+quote('$W$WB$WB01]DJHTM{A}SH^71-2456')),'SHZ71-2456')

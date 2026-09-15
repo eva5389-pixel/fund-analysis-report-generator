@@ -3,7 +3,7 @@ import re
 import subprocess
 import requests
 from lxml import html
-from fund_analysis import moneydj_fund_id
+from fund_analysis import moneydj_fund_id, moneydj_fund_route
 
 
 def parse_risk(text):
@@ -14,7 +14,7 @@ def parse_risk(text):
 def load_risk(url):
     code=moneydj_fund_id(url)
     if not code: return '未確認',''
-    if code.startswith('ACPS'):
+    if moneydj_fund_route(url) == 'wr':
         target='https://www.moneydj.com/funddj/yp/yp011000.djhtm?a='+code.split('-')[0]
     else:
         target='https://tcbbankfund.moneydj.com/w/wb/wb01.djhtm?a='+code

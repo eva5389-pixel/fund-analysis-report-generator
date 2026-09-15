@@ -214,6 +214,16 @@ def classify_url_tables(tables: list[pd.DataFrame]) -> tuple[pd.DataFrame, pd.Da
     return nav, holdings, descriptions
 
 
+def moneydj_fund_route(url: str) -> str:
+    """Use the source page's market, which is independent of provider code."""
+    decoded = unquote(str(url)).lower()
+    match = re.search(r"/w/(wr|wb)/|\$w\$(wr|wb)\$", decoded)
+    if match:
+        return match.group(1) or match.group(2)
+    code = moneydj_fund_id(url) or ""
+    return "wr" if code.startswith("ACPS") else "wb"
+
+
 def moneydj_fund_id(url: str) -> str | None:
     decoded = unquote(str(url)).replace('^', 'Z')
     host = (urlparse(decoded).hostname or '').lower()

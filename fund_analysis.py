@@ -180,7 +180,10 @@ def read_url_tables(url: str, max_bytes: int = 12_000_000) -> list[pd.DataFrame]
                 continue
         return [pd.read_csv(io.BytesIO(raw))]
     text = raw.decode(response.encoding or "utf-8", errors="replace")
-    tables = pd.read_html(io.StringIO(text))
+    try:
+        tables = pd.read_html(io.StringIO(text), flavor="lxml")
+    except ValueError as exc:
+        raise ValueError("此網址沒有可讀取的資料表，請貼基金的完整資料頁網址，或改用檔案上傳。") from exc
     if not tables:
         raise ValueError("頁面中找不到可讀取的表格。")
     # Keep the page's dated labels so importers do not invent a holdings date.
@@ -216,7 +219,7 @@ def moneydj_fund_id(url: str) -> str | None:
     host = (urlparse(decoded).hostname or '').lower()
     if host != 'moneydj.com' and not host.endswith('.moneydj.com'):
         return None
-    match = re.search(r"(?<![A-Za-z0-9])((?:ACPS|[A-Z]{2}Z)\d+(?:-[A-Za-z0-9]+)?)(?![A-Za-z0-9])", decoded, flags=re.IGNORECASE)
+    match = re.search(r"(?:\{A\}|[?&]a=)([A-Z]{2,6}\d+[A-Z0-9]*(?:-[A-Za-z0-9]+)?)(?![A-Za-z0-9])", decoded, flags=re.IGNORECASE)
     return match.group(1).upper() if match else None
 
 
@@ -279,7 +282,7 @@ def load_moneydj_fund(url: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Convert a MoneyDJ wrapper URL to its public NAV and holdings pages."""
     fund_id = moneydj_fund_id(url)
     if not fund_id:
-        raise ValueError("MoneyDJ 網址中找不到 ACPS 基金代碼。")
+        raise ValueError("MoneyDJ 網址中找不到基金代碼，請貼上完整基金資料頁網址。")
     if not fund_id.startswith("ACPS"):
         from moneydj_comparison import load_comparison_fund
         nav, holdings, descriptions = load_comparison_fund(url)

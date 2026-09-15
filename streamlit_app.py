@@ -15,7 +15,7 @@ from fund_analysis import (
 from report_builder import build_report
 
 
-MAPPING_CACHE_VERSION = "2026-09-07-02"
+MAPPING_CACHE_VERSION = "2026-09-15-url-parser"
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
@@ -89,7 +89,7 @@ try:
                 primary_funds = nav_df["fund"].dropna().unique().tolist()
                 if peer_url.strip():
                     if not moneydj_fund_id(peer_url):
-                        peer_load_error = "同類基金網址目前請貼 MoneyDJ 且含 ACPS 基金代碼的基金頁面。"
+                        peer_load_error = "同類基金網址請貼含基金代碼的 MoneyDJ 完整基金資料頁。"
                     else:
                         try:
                             peer_nav, peer_holdings, peer_descriptions = load_moneydj_url(peer_url.strip(), MAPPING_CACHE_VERSION)

@@ -52,6 +52,13 @@ MONEYDJ_HOLDING_MAP = {
     "allegro microsystems": ("ALGM", "類比與功率半導體", "車用與工業感測晶片"),
     "coherent": ("COHR", "光電元件", "光通訊與雷射元件"),
     "advanced micro devices": ("AMD", "半導體設計", "AI運算與資料中心"),
+    # Business classifications checked against company product pages (2026-09-15).
+    # https://www.kingslide.com/products_cloud?___store=taiwan
+    "川湖": ("2059.TW", "伺服器機構件", "伺服器滑軌與機櫃機構件"),
+    # https://www.aspeedtech.com/tw/server/
+    "信驊": ("5274.TWO", "伺服器管理IC", "伺服器遠端管理晶片BMC"),
+    # https://www.elaser.com.tw/sp2-4.htm
+    "聯鈞": ("3450.TW", "光通訊元件封測", "光通訊雷射元件封裝測試"),
     "台積電": ("2330.TW", "晶圓代工", "AI先進製程"),
     "台光電": ("2383.TW", "銅箔基板", "AI伺服器與高速傳輸"),
     "貿聯": ("3665.TW", "連接線束", "AI伺服器高速連接與電力傳輸"),

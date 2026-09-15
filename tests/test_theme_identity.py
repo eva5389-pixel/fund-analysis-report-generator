@@ -1,6 +1,12 @@
 import unittest
 from fund_analysis import _holding_identity
 class ThemeTests(unittest.TestCase):
+    def test_yuanta_new_mainstream_unclassified_holdings(self):
+        from moneydj_comparison import holding_identity
+        expected = {'川湖': '伺服器滑軌與機櫃機構件', '信驊': '伺服器遠端管理晶片BMC', '聯鈞': '光通訊雷射元件封裝測試'}
+        for name, theme in expected.items():
+            self.assertEqual(holding_identity(name)[2], theme)
+
     def test_known_and_unknown(self):
         for name in ['Amazon.com','Nebius Group NV','Tesla','Modine Manufacturing Co','Sumitomo Electric Industries','Ajinomoto Co','Carvana Co','Allegro MicroSystems','Coherent']:
             self.assertNotEqual(_holding_identity(name)[2],'其他／待確認')

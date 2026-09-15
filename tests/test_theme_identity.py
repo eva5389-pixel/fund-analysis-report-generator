@@ -1,6 +1,19 @@
 import unittest
 from fund_analysis import _holding_identity
 class ThemeTests(unittest.TestCase):
+    def test_nomura_japan_disclosed_holdings(self):
+        import json
+        from pathlib import Path
+        from moneydj_comparison import holding_identity
+        rows=json.loads((Path(__file__).parent/'fixtures/nomura_japan_holdings.json').read_text())
+        self.assertEqual(len(rows),10)
+        self.assertAlmostEqual(sum(float(r['weight']) for r in rows),31.03)
+        for row in rows:
+            identity=holding_identity(row['name'])
+            self.assertNotEqual(identity[1],'其他／待確認',row['name'])
+            self.assertNotEqual(identity[2],'其他／待確認',row['name'])
+        self.assertNotEqual(holding_identity('Sumitomo Mitsui Financial Group, Inc.')[0],holding_identity('Mitsui & Co.,Ltd')[0])
+
     def test_six_fund_snapshot_has_no_unclassified_disclosed_holdings(self):
         import json
         from pathlib import Path

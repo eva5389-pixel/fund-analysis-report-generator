@@ -25,3 +25,19 @@
 ASPEED 與中文信驊使用同一題材；三菱商事與三菱重工為不同公司。住友商事依多元業務列為綜合商社，未直接沿用基金頁面的房地產欄位。
 
 `tests/fixtures/six_fund_holdings.json` 保留六檔 MoneyDJ 公開持股快照；境內來源為 `/w/wr/wr04.djhtm?a=基金代碼`，境外為 `/w/wb/wb04.djhtm?a=基金代碼`。安聯東方入息採 A 美元級別之持股，截图未完整顯示級別；題材規則依公司名稱套用至各級別實際讀到的持股。
+
+## 野村日本策略價值基金 NFI10-DC09
+
+2026-09-15 查核；公開前十大合計 31.03%，原未分類 28.94%。題材為業務分類，未依營收比例拆分。
+
+- 三井住友金融：https://www.smfg.co.jp/english/
+- 三菱日聯金融：https://www.mufg.jp/english/
+- 豐田：https://global.toyota/en/company/profile/overview/
+- Sony：https://www.sony.com/en/SonyInfo/blog/2026/04/24/
+- 東京海上：https://www.tokiomarinehd.com/en/company/information/
+- 日本郵政銀行：https://www.jp-bank.japanpost.jp/en/ir/investor/en_ir_inv_index.html
+- TDK：https://www.tdk.com/en/about_tdk/tdk_at_a_glance/index.html
+- 三井物產：https://www.mitsui.com/jp/en/company/business/
+- 日立：https://www.hitachi.com/en-us/about/
+
+持股來源：https://tcbbankfund.moneydj.com/w/wb/wb04.djhtm?a=NFI10-DC09

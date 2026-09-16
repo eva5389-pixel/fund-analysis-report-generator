@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Holdings enrichment for market fallback, holding status and company earnings."""
+"""Holdings enrichment for market fallback, holding status, earnings and attribution."""
 
 from functools import lru_cache
 import re
@@ -83,6 +83,59 @@ def earnings_snapshot(ticker: str) -> dict[str, float | str]:
         return {}
 
 
+def theme_attribution(changes: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate stock price attribution into an explainable theme-level table."""
+    if changes is None or changes.empty:
+        return pd.DataFrame()
+    work = changes.copy()
+    if "分類" not in work:
+        work["分類"] = work.get("theme", "未分類")
+    valid = work.dropna(subset=["估計貢獻"]).copy()
+    if valid.empty:
+        return pd.DataFrame()
+    rows = []
+    for theme, group in valid.groupby("分類", dropna=False):
+        ranked = group.assign(_abs=group["估計貢獻"].abs()).sort_values("_abs", ascending=False)
+        leaders = ranked["name"].astype(str).head(3).tolist()
+        rows.append({
+            "題材／市場": theme,
+            "代表持股": "、".join(leaders),
+            "持股檔數": int(group["ticker"].nunique()),
+            "期末權重": group["期末權重"].sum(),
+            "權重變化": group["權重變化"].sum(),
+            "估計貢獻": group["估計貢獻"].sum(),
+        })
+    return pd.DataFrame(rows).sort_values("估計貢獻", ascending=False)
+
+
+def driver_summary(changes: pd.DataFrame) -> list[str]:
+    """Generate factual, calculation-based driver sentences; no causal claims beyond attribution."""
+    if changes is None or changes.empty:
+        return []
+    valid = changes.dropna(subset=["估計貢獻"]).copy()
+    if valid.empty:
+        return ["目前缺少足夠的個股市場價格，暫時無法完成基金漲跌歸因。"]
+    themes = theme_attribution(valid)
+    messages = []
+    positive = themes[themes["估計貢獻"] > 0].head(3)
+    negative = themes[themes["估計貢獻"] < 0].sort_values("估計貢獻").head(3)
+    if not positive.empty:
+        labels = "、".join(f"{r['題材／市場']} ({r['估計貢獻']:+.2f}pp)" for _, r in positive.iterrows())
+        messages.append(f"依持股權重與個股區間報酬估算，主要正貢獻來自：{labels}。")
+    if not negative.empty:
+        labels = "、".join(f"{r['題材／市場']} ({r['估計貢獻']:+.2f}pp)" for _, r in negative.iterrows())
+        messages.append(f"主要負貢獻／拖累來自：{labels}。")
+    additions = valid[valid.get("狀態", pd.Series(index=valid.index, dtype=str)).isin(["新增", "加碼"])]
+    reductions = valid[valid.get("狀態", pd.Series(index=valid.index, dtype=str)).isin(["減碼", "退出"])]
+    if not additions.empty:
+        labels = "、".join(additions.sort_values("權重變化", ascending=False)["分類"].drop_duplicates().astype(str).head(3))
+        messages.append(f"經理人本期較明顯新增／加碼的方向包括：{labels}。")
+    if not reductions.empty:
+        labels = "、".join(reductions.sort_values("權重變化")["分類"].drop_duplicates().astype(str).head(3))
+        messages.append(f"較明顯減碼／退出的方向包括：{labels}。")
+    return messages
+
+
 def install(fund_analysis_module) -> None:
     fa = fund_analysis_module
     if getattr(fa, "_holdings_enhancement_installed", False):
@@ -119,7 +172,6 @@ def install(fund_analysis_module) -> None:
             ["新增", "退出", "加碼", "減碼"], default="持平",
         )
         out["狀態"] = status
-        # Keep the old action vocabulary so the existing Streamlit multiselect remains compatible.
         out["動作"] = pd.Series(status, index=out.index).replace({"新增": "新進", "退出": "出清"})
         snapshots = [earnings_snapshot(ticker) for ticker in out["ticker"]]
         for column in ("最新財報期", "最新營收", "營收成長%", "最新淨利", "淨利成長%"):
@@ -132,4 +184,6 @@ def install(fund_analysis_module) -> None:
     fa.holding_changes = enhanced_holding_changes
     fa.infer_market = infer_market
     fa.earnings_snapshot = earnings_snapshot
+    fa.theme_attribution = theme_attribution
+    fa.driver_summary = driver_summary
     fa._holdings_enhancement_installed = True

@@ -41,17 +41,32 @@ def _nearest_return(series: pd.Series, months: int):
     return (end_value / start_value - 1) * 100 if start_value > 0 else np.nan
 
 
+def _first_finite(frame: pd.DataFrame, column: str):
+    if column not in frame:
+        return np.nan
+    values = pd.to_numeric(frame[column], errors='coerce').dropna()
+    return float(values.iloc[-1]) if not values.empty else np.nan
+
+
 def _fund_screen_metrics(nav: pd.DataFrame, funds, risk_free: float = 0.015) -> pd.DataFrame:
     rows = []
     for fund in funds:
         frame = nav[nav.fund == fund].sort_values('date').dropna(subset=['date', 'nav'])
         s = frame.set_index('date').nav.astype(float)
         daily = s.pct_change().dropna()
-        sharpe = np.nan
+        calculated_sharpe = np.nan
         if len(daily) >= 20 and daily.std(ddof=1) > 0:
-            sharpe = ((daily.mean() - risk_free / 252) / daily.std(ddof=1)) * np.sqrt(252)
-        rows.append({'基金': fund, 'Sharpe': sharpe, 'Beta': np.nan,
-                     '1M %': _nearest_return(s, 1), '3M %': _nearest_return(s, 3), '6M %': _nearest_return(s, 6)})
+            calculated_sharpe = ((daily.mean() - risk_free / 252) / daily.std(ddof=1)) * np.sqrt(252)
+        published_sharpe = _first_finite(frame, 'moneydj_sharpe')
+        published_beta = _first_finite(frame, 'moneydj_beta')
+        values = {}
+        for months, key, source_col in [(1, '1M %', 'moneydj_1m'), (3, '3M %', 'moneydj_3m'), (6, '6M %', 'moneydj_6m')]:
+            published = _first_finite(frame, source_col)
+            values[key] = published if np.isfinite(published) else _nearest_return(s, months)
+        rows.append({'基金': fund,
+                     'Sharpe': published_sharpe if np.isfinite(published_sharpe) else calculated_sharpe,
+                     'Beta': published_beta,
+                     **values})
     return pd.DataFrame(rows)
 
 
@@ -140,9 +155,10 @@ def render_comparison():
 
     all_funds=sorted(nav.fund.unique())
     st.subheader('基金評估指標')
-    st.caption('Sharpe、Beta、1M／3M／6M 會納入選定基金的最終比較；不需要另外設定最低／最高篩選門檻。')
-    beta_benchmark=st.selectbox('Beta 比較基準',['不計算 Beta']+all_funds,key='cmp_beta_benchmark')
-    screen=_attach_beta(_fund_screen_metrics(nav,all_funds),nav,None if beta_benchmark=='不計算 Beta' else beta_benchmark)
+    st.caption('MoneyDJ 網址模式優先採用 MoneyDJ 公布的 Sharpe、Beta、1M／3M／6M；短期報酬抓不到時才由淨值計算補足。')
+    beta_benchmark=st.selectbox('Beta 比較基準',['MoneyDJ 公布 Beta']+all_funds,key='cmp_beta_benchmark')
+    screen=_fund_screen_metrics(nav,all_funds)
+    if beta_benchmark!='MoneyDJ 公布 Beta': screen=_attach_beta(screen,nav,beta_benchmark)
     st.dataframe(screen,hide_index=True,column_config={'Sharpe':st.column_config.NumberColumn(format='%.2f'),'Beta':st.column_config.NumberColumn(format='%.2f'),'1M %':st.column_config.NumberColumn(format='%+.2f'),'3M %':st.column_config.NumberColumn(format='%+.2f'),'6M %':st.column_config.NumberColumn(format='%+.2f')})
     selected=st.multiselect('選擇比較基金（2 至 10 檔）',all_funds,default=None if 'cmp_selected' in st.session_state else all_funds[:min(5,len(all_funds))],key='cmp_selected')
     if not 2<=len(selected)<=10: st.info('請選擇 2 至 10 檔基金。'); return
@@ -197,7 +213,7 @@ def render_comparison():
     st.markdown('#### 選定基金的 Sharpe、Beta 與短期績效')
     for _,row in performance.iterrows():
         st.write(f'{row["基金"]}：Sharpe {_fmt_metric(row["Sharpe"])}、Beta {_fmt_metric(row["Beta"])}、1M {_fmt_metric(row["1M %"], "%")}、3M {_fmt_metric(row["3M %"], "%")}、6M {_fmt_metric(row["6M %"], "%")}；區間台幣報酬 {_fmt_metric(row["台幣報酬 %"], "%")}。')
-    st.caption('N/A 表示目前載入的淨值或比較基準資料不足；不以缺值推估。Beta 是相對上方所選比較基準計算。')
+    st.caption('MoneyDJ 網址模式優先採用來源公布值；N/A 表示來源與已載入淨值都不足。若改選基金作 Beta 基準，Beta 會依共同淨值重新計算。')
     columns=['基金','Sharpe','Beta','1M %','3M %','6M %','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %','台幣匯率影響 百分點','美元匯率影響 百分點','日幣匯率影響 百分點']
     st.dataframe(performance[columns],hide_index=True,column_config={c:st.column_config.NumberColumn(format='%.2f') for c in ['Sharpe','Beta']}|{c:st.column_config.NumberColumn(format='%+.2f') for c in columns if c.endswith('%') or '百分點' in c})
     chart=performance.melt(id_vars=['基金'],value_vars=['原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %'],var_name='報酬基準',value_name='報酬 %'); st.altair_chart(alt.Chart(chart).mark_bar().encode(x=alt.X('基金:N',axis=alt.Axis(labelAngle=0)),xOffset='報酬基準:N',y=alt.Y('報酬 %:Q'),color='報酬基準:N',tooltip=['基金','報酬基準',alt.Tooltip('報酬 %:Q',format='.2f')]))

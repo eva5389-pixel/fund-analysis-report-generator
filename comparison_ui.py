@@ -1,8 +1,4 @@
-from datetime import date
 from hashlib import sha256
-from io import BytesIO
-from pathlib import Path
-
 import altair as alt
 import numpy as np
 import pandas as pd
@@ -10,7 +6,7 @@ import streamlit as st
 
 from risk_metadata import load_risk
 from auto_metadata import infer_metadata, fetch_fx
-from fund_analysis import moneydj_fund_id, read_table, _holding_identity
+from fund_analysis import moneydj_fund_id, read_table
 from moneydj_comparison import load_comparison_fund, holding_identity
 from comparison_engine import (BASIS, CURRENCIES, METHOD, common_period, compare, conclusions, demo_data,
                                endpoint_rates, read_fx, read_nav, report_html, theme_comparison)
@@ -76,9 +72,13 @@ def _attach_beta(metrics: pd.DataFrame, nav: pd.DataFrame, benchmark_name: str |
     return result
 
 
+def _fmt_metric(value, suffix=''):
+    return 'N/A' if pd.isna(value) else f'{value:+.2f}{suffix}'
+
+
 def render_comparison():
     st.header('基金績效題材與匯率比較')
-    st.write('同時比較原幣、台幣、美元及日幣報酬，拆解匯率影響，並列持股題材與資料涵蓋率。')
+    st.write('同時比較原幣、台幣、美元及日幣報酬，並把 Sharpe、Beta、1M／3M／6M 績效納入選定基金的最終評估。')
     source_mode = st.segmented_control('比較資料來源', ['MoneyDJ 網址','檔案上傳','示範資料'], default='MoneyDJ 網址', key='cmp_source')
     sample = source_mode == '示範資料'
     nav_raw = holdings = pd.DataFrame(); descriptions=[]
@@ -124,6 +124,7 @@ def render_comparison():
         nav_raw=pd.concat([entry[0] for entry in basket.values()],ignore_index=True); holdings=pd.concat([entry[1] for entry in basket.values()],ignore_index=True)
         descriptions=[description for entry in basket.values() for description in entry[2]]
     else: return
+
     if not holdings.empty and {'name','theme'} <= set(holdings):
         holdings=holdings.copy()
         for idx,row in holdings.iterrows():
@@ -136,26 +137,32 @@ def render_comparison():
             for description in descriptions: st.write(description)
     try: nav=read_nav(nav_raw)
     except ValueError as exc: st.error(str(exc)); return
+
     all_funds=sorted(nav.fund.unique())
-    st.subheader('基金篩選')
-    st.caption('Sharpe 以載入的日淨值年化計算；Beta 需指定同一批資料中的比較基準；1M／3M／6M 以最新淨值往前找最近可用日期計算。')
+    st.subheader('基金篩選與評估指標')
+    st.caption('Sharpe 以載入的日淨值年化計算；Beta 需指定同一批資料中的比較基準；1M／3M／6M 以最新淨值往前找最近可用日期計算。缺資料顯示 N/A，不會自動把基金排除。')
     beta_benchmark=st.selectbox('Beta 比較基準',['不計算 Beta']+all_funds,key='cmp_beta_benchmark')
     screen=_attach_beta(_fund_screen_metrics(nav,all_funds),nav,None if beta_benchmark=='不計算 Beta' else beta_benchmark)
     with st.expander('進階篩選條件',expanded=True):
         c1,c2,c3=st.columns(3); min_sharpe=c1.number_input('Sharpe 最低值',value=-5.0,step=0.1,key='cmp_min_sharpe'); min_beta=c2.number_input('Beta 最低值',value=-5.0,step=0.1,key='cmp_min_beta'); max_beta=c3.number_input('Beta 最高值',value=5.0,step=0.1,key='cmp_max_beta')
         c4,c5,c6=st.columns(3); min_1m=c4.number_input('1M 最低報酬 %',value=-100.0,step=0.5,key='cmp_min_1m'); min_3m=c5.number_input('3M 最低報酬 %',value=-100.0,step=0.5,key='cmp_min_3m'); min_6m=c6.number_input('6M 最低報酬 %',value=-100.0,step=0.5,key='cmp_min_6m')
-        require_all=st.checkbox('只保留 1M、3M、6M 都有資料的基金',value=False,key='cmp_require_all_periods')
-    mask=screen['Sharpe'].fillna(-np.inf)>=min_sharpe
-    if beta_benchmark!='不計算 Beta': mask &= screen['Beta'].between(min_beta,max_beta,inclusive='both').fillna(False)
-    mask &= screen['1M %'].fillna(-np.inf)>=min_1m; mask &= screen['3M %'].fillna(-np.inf)>=min_3m; mask &= screen['6M %'].fillna(-np.inf)>=min_6m
-    if require_all: mask &= screen[['1M %','3M %','6M %']].notna().all(axis=1)
+        require_all=st.checkbox('只保留 Sharpe、Beta、1M、3M、6M 都有資料的基金',value=False,key='cmp_require_all_periods')
+    mask=(screen['Sharpe'].isna() | (screen['Sharpe']>=min_sharpe))
+    if beta_benchmark!='不計算 Beta': mask &= screen['Beta'].isna() | screen['Beta'].between(min_beta,max_beta,inclusive='both')
+    mask &= screen['1M %'].isna() | (screen['1M %']>=min_1m)
+    mask &= screen['3M %'].isna() | (screen['3M %']>=min_3m)
+    mask &= screen['6M %'].isna() | (screen['6M %']>=min_6m)
+    if require_all:
+        required=['Sharpe','1M %','3M %','6M %']+(['Beta'] if beta_benchmark!='不計算 Beta' else [])
+        mask &= screen[required].notna().all(axis=1)
     filtered=screen[mask].sort_values(['Sharpe','6M %'],ascending=[False,False],na_position='last')
     st.dataframe(filtered,hide_index=True,column_config={'Sharpe':st.column_config.NumberColumn(format='%.2f'),'Beta':st.column_config.NumberColumn(format='%.2f'),'1M %':st.column_config.NumberColumn(format='%+.2f'),'3M %':st.column_config.NumberColumn(format='%+.2f'),'6M %':st.column_config.NumberColumn(format='%+.2f')})
-    st.caption(f'符合條件：{len(filtered)} / {len(screen)} 檔')
+    st.caption(f'符合條件：{len(filtered)} / {len(screen)} 檔；N/A 代表目前載入資料不足，除非勾選「都有資料」才會排除。')
     eligible_funds=filtered['基金'].tolist()
     if not eligible_funds: st.warning('目前沒有基金符合篩選條件，請放寬門檻。'); return
     selected=st.multiselect('選擇比較基金（2 至 10 檔）',eligible_funds,default=None if 'cmp_selected' in st.session_state else eligible_funds[:min(5,len(eligible_funds))],key='cmp_selected')
     if not 2<=len(selected)<=10: st.info('請選擇 2 至 10 檔基金。'); return
+
     sub=nav[nav.fund.isin(selected)]; d0,d1=sub.date.min().date(),sub.date.max().date(); left,right=st.columns(2)
     start=left.date_input('希望比較起日',d0,min_value=d0,max_value=d1,key='cmp_start'); end=right.date_input('希望比較迄日',d1,min_value=d0,max_value=d1,key='cmp_end')
     try: actual_start,actual_end=common_period(nav,selected,start,end)
@@ -169,11 +176,12 @@ def render_comparison():
                 if risk_source: descriptions.append('風險等級來源：'+risk_source)
             except Exception: pass
     meta=[infer_metadata(nav,fund,moneydj=source_mode=='MoneyDJ 網址',sample=sample) for fund in selected]
-    st.subheader('自動判讀基金級別與報酬口徑'); st.caption('已依資料來源自動帶入，可直接修改。風險等級取自來源公布的 RR1～RR5；查不到時可手動補填。'); st.caption('使用淨值的計價幣別。RR1～RR5 為風險報酬等級，供比較參考，不用來調整報酬。')
+    st.subheader('自動判讀基金級別與報酬口徑'); st.caption('已依資料來源自動帶入，可直接修改。風險等級取自來源公布的 RR1～RR5；查不到時可手動補填。')
     source_id=sha256((nav.to_csv(index=False)+repr(selected)).encode()).hexdigest()[:10]
     meta=st.data_editor(pd.DataFrame(meta),hide_index=True,disabled=['基金','判讀依據'],key='cmp_meta_rr_'+source_id,column_config={'級別幣別':st.column_config.SelectboxColumn(options=['請確認']+CURRENCIES,required=True),'報酬口徑':st.column_config.SelectboxColumn(options=BASIS,required=True),'風險報酬等級':st.column_config.SelectboxColumn(options=['未確認','RR1','RR2','RR3','RR4','RR5'],required=True)})
     if not meta['級別幣別'].isin(CURRENCIES).all(): st.info('請先在上表確認每檔基金的級別幣別，再設定匯率。'); return
-    currencies=sorted(set(meta['級別幣別'])|{'USD','TWD','JPY'}); st.subheader('期初與期末匯率'); st.write('統一填「1 單位該幣別＝多少台幣」，例如 USD 匯率 32 代表 1 美元可換 32 台幣。系統會同時計算台幣、美元及日幣結果。JPY 請填 1 日圓兌台幣，例如 0.22，不是 100 日圓的報價。')
+
+    currencies=sorted(set(meta['級別幣別'])|{'USD','TWD','JPY'}); st.subheader('期初與期末匯率'); st.write('統一填「1 單位該幣別＝多少台幣」，例如 USD 匯率 32 代表 1 美元可換 32 台幣。JPY 請填 1 日圓兌台幣，例如 0.22。')
     fx_mode=st.segmented_control('匯率輸入方式',['自動取得','手動輸入','匯率檔上傳'],default='手動輸入' if sample else '自動取得',key='cmp_fx_mode_v2'); rates=None; fx_source=''
     if fx_mode=='自動取得':
         try:
@@ -181,7 +189,7 @@ def render_comparison():
             st.dataframe(rates,hide_index=True); st.caption('Frankfurter 歷史參考匯率，已換算成 1 單位外幣兌台幣；非銀行實際買賣成交價。')
         except Exception: st.warning('暫時無法取得完整同日匯率，請切換手動輸入或匯率檔上傳；不會套用其他日期。')
     elif fx_mode=='匯率檔上傳':
-        f=st.file_uploader('匯率資料（CSV／Excel）',type=['csv','xlsx','xls'],key='cmp_fx_upload'); st.caption('欄位：日期、幣別、台幣匯率。需涵蓋實際共同淨值起訖日；不自動套用其他日期。')
+        f=st.file_uploader('匯率資料（CSV／Excel）',type=['csv','xlsx','xls'],key='cmp_fx_upload'); st.caption('欄位：日期、幣別、台幣匯率。需涵蓋實際共同淨值起訖日。')
         if f:
             try: rates=endpoint_rates(read_fx(read_table(f)),currencies,actual_start,actual_end)
             except Exception as exc: st.error(str(exc)); return
@@ -194,13 +202,23 @@ def render_comparison():
     if rates is None: return
     sources=st.text_area('資料來源與匯率報價來源',value='模擬資料（非市場報價）' if sample else '\n'.join(descriptions+[fx_source]),key='cmp_sources_v2_'+source_id+'_'+str(actual_start)+'_'+str(actual_end)+'_'+str(fx_mode)); notes=st.text_area('報告補充說明',key='cmp_notes',placeholder='例如：配息處理方式、幣別避險資訊、資料時點差異')
     if not sample and not st.checkbox('已確認基金幣別、報酬口徑與同日匯率來源',key='cmp_confirm_'+source_id): return
+
     try: performance=compare(nav,meta,rates,actual_start,actual_end); themes,coverage=theme_comparison(holdings,selected,actual_end)
     except ValueError as exc: st.error(str(exc)); return
-    st.subheader('績效與匯率比較結果')
+    selected_metrics=screen[screen['基金'].isin(selected)][['基金','Sharpe','Beta','1M %','3M %','6M %']]
+    performance=performance.merge(selected_metrics,on='基金',how='left')
+
+    st.subheader('績效、風險與動能綜合評估')
     for line in conclusions(performance,themes): st.write(line)
-    columns=['基金','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %','台幣匯率影響 百分點','美元匯率影響 百分點','日幣匯率影響 百分點']; st.dataframe(performance[columns],hide_index=True,column_config={c:st.column_config.NumberColumn(format='%+.2f') for c in columns[2:]})
+    st.markdown('#### 選定基金的 Sharpe、Beta 與短期績效')
+    for _,row in performance.iterrows():
+        st.write(f'{row["基金"]}：Sharpe {_fmt_metric(row["Sharpe"])}、Beta {_fmt_metric(row["Beta"])}、1M {_fmt_metric(row["1M %"], "%")}、3M {_fmt_metric(row["3M %"], "%")}、6M {_fmt_metric(row["6M %"], "%")}；區間台幣報酬 {_fmt_metric(row["台幣報酬 %"], "%")}。')
+    st.caption('N/A 表示目前載入的淨值或比較基準資料不足；不以缺值推估。Beta 是相對上方所選比較基準計算。')
+    columns=['基金','Sharpe','Beta','1M %','3M %','6M %','級別幣別','原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %','台幣匯率影響 百分點','美元匯率影響 百分點','日幣匯率影響 百分點']
+    st.dataframe(performance[columns],hide_index=True,column_config={c:st.column_config.NumberColumn(format='%.2f') for c in ['Sharpe','Beta']}|{c:st.column_config.NumberColumn(format='%+.2f') for c in columns if c.endswith('%') or '百分點' in c})
     chart=performance.melt(id_vars=['基金'],value_vars=['原幣報酬 %','台幣報酬 %','美元報酬 %','日幣報酬 %'],var_name='報酬基準',value_name='報酬 %'); st.altair_chart(alt.Chart(chart).mark_bar().encode(x=alt.X('基金:N',axis=alt.Axis(labelAngle=0)),xOffset='報酬基準:N',y=alt.Y('報酬 %:Q'),color='報酬基準:N',tooltip=['基金','報酬基準',alt.Tooltip('報酬 %:Q',format='.2f')]))
-    st.caption('原幣柱是不同計價幣別；請以台幣、美元或日幣柱作相同幣別的比較。匯率影響欄為百分點，已包含交互作用。'); st.subheader('投資題材配置'); st.caption('題材依公司業務分類，非基金經理人的官方投資理由；多元業務以合併題材呈現，每筆持股只計一次權重。')
+
+    st.subheader('投資題材配置'); st.caption('題材依公司業務分類，非基金經理人的官方投資理由；每筆持股只計一次權重。')
     if not holdings.empty and {'name','theme'} <= set(holdings):
         with st.expander('查看持股與題材分類對照'):
             detail=holdings[holdings.fund.isin(selected)].copy()
@@ -208,15 +226,17 @@ def render_comparison():
             st.dataframe(detail[[c for c in ['fund','name','sector','theme','weight'] if c in detail]].rename(columns={'fund':'基金','name':'持股','sector':'產業','theme':'投資題材','weight':'權重 %'}),hide_index=True)
     if themes.empty: st.info('未提供有效持股題材資料，績效與匯率比較仍可使用。')
     else:
-        st.dataframe(themes.pivot(index='投資題材',columns='基金',values='權重 %').reindex(columns=selected),column_config={f:st.column_config.NumberColumn(format='%.2f%%') for f in selected}); st.caption('空白表示沒有該題材紀錄，不代表曝險一定為零；此表只涵蓋已揭露資料。'); st.markdown('#### 題材持股比例柱狀圖')
-        theme_order=themes.groupby('投資題材')['權重 %'].max().sort_values(ascending=False).index.tolist(); theme_chart=alt.Chart(themes).mark_bar().encode(y=alt.Y('投資題材:N',sort=theme_order,title=None,axis=alt.Axis(labelLimit=320)),yOffset=alt.YOffset('基金:N',sort=selected),x=alt.X('權重 %:Q',title='占基金淨資產比例（%）',scale=alt.Scale(zero=True)),color=alt.Color('基金:N',sort=selected,legend=alt.Legend(orient='bottom',labelLimit=350)),tooltip=['基金:N','投資題材:N','持股日期:N',alt.Tooltip('權重 %:Q',format='.2f')]).properties(height=max(280,len(theme_order)*max(40,len(selected)*16))); st.altair_chart(theme_chart); st.caption('每種顏色代表一檔基金。以橫向柱狀呈現完整題材名稱；未揭露部位不補零、不放大至100%。'); st.dataframe(coverage,hide_index=True)
+        st.dataframe(themes.pivot(index='投資題材',columns='基金',values='權重 %').reindex(columns=selected),column_config={f:st.column_config.NumberColumn(format='%.2f%%') for f in selected})
+        theme_order=themes.groupby('投資題材')['權重 %'].max().sort_values(ascending=False).index.tolist(); theme_chart=alt.Chart(themes).mark_bar().encode(y=alt.Y('投資題材:N',sort=theme_order,title=None,axis=alt.Axis(labelLimit=320)),yOffset=alt.YOffset('基金:N',sort=selected),x=alt.X('權重 %:Q',title='占基金淨資產比例（%）'),color=alt.Color('基金:N',sort=selected),tooltip=['基金:N','投資題材:N','持股日期:N',alt.Tooltip('權重 %:Q',format='.2f')]).properties(height=max(280,len(theme_order)*max(40,len(selected)*16))); st.altair_chart(theme_chart); st.dataframe(coverage,hide_index=True)
         missing=set(selected)-set(coverage['基金'])
         if missing: st.warning('以下基金沒有期末以前的持股資料：'+'、'.join(sorted(missing)))
-        if (coverage['資料距期末 天']>90).any(): st.warning('部分持股距績效期末超過90天，題材配置可能已改變。')
+        if not coverage.empty and (coverage['資料距期末 天']>90).any(): st.warning('部分持股距績效期末超過90天，題材配置可能已改變。')
+
     with st.expander('計算方式、淨值端點與資料限制'):
         st.dataframe(performance,hide_index=True)
         for line in METHOD: st.write(line)
-        st.markdown('[Investor.gov：匯率與國際投資](https://www.investor.gov/introduction-investing/investing-basics/investment-products/international-investing) · [FINRA：基金與配息](https://www.finra.org/investors/investing/investment-products/mutual-funds)')
-    html=report_html(performance,themes,coverage,rates,actual_start,actual_end,sources,notes,sample)
+    metric_notes='\n'.join(f'{r["基金"]}｜Sharpe {_fmt_metric(r["Sharpe"])}｜Beta {_fmt_metric(r["Beta"])}｜1M {_fmt_metric(r["1M %"], "%")}｜3M {_fmt_metric(r["3M %"], "%")}｜6M {_fmt_metric(r["6M %"], "%")}' for _,r in performance.iterrows())
+    report_notes=(notes+'\n\n選定基金風險與動能指標：\n'+metric_notes).strip()
+    html=report_html(performance,themes,coverage,rates,actual_start,actual_end,sources,report_notes,sample)
     if st.button('產生比較報告下載',type='primary',key='cmp_prepare'):
         st.download_button('下載完整比較報告（HTML，可列印為 PDF）',html.encode('utf-8'),f'基金績效題材匯率比較_{actual_end:%Y%m%d}.html',mime='text/html',on_click='ignore'); st.download_button('下載績效比較數據（CSV）',performance.to_csv(index=False).encode('utf-8-sig'),f'基金比較數據_{actual_end:%Y%m%d}.csv',mime='text/csv',on_click='ignore'); st.download_button('下載題材比較數據（CSV）',themes.to_csv(index=False).encode('utf-8-sig'),f'基金題材數據_{actual_end:%Y%m%d}.csv',mime='text/csv',on_click='ignore')

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import re
 from io import StringIO
 from datetime import datetime
 
@@ -60,20 +61,43 @@ def wantgoo_branch(symbol):
     return pd.DataFrame(),urls[0],locals().get("last","無法讀取 WantGoo")
 
 @st.cache_data(ttl=900)
-def fubon_branch(branch_id):
-    """讀取富邦 eBrokerDJ 公開分點頁；branch_id 例如 5660。"""
-    url=f"https://fubon-ebrokerdj.fbs.com.tw/z/zg/zgb/zgb0.djhtm?a={branch_id}&b={branch_id}"
+def fubon_stock_brokers(symbol, period=1):
+    """富邦 eBrokerDJ / MoneyDJ 個股主力進出公開頁。"""
+    suffix={1:"",5:"_5",20:"_20",60:"_60"}.get(int(period),"")
+    url=f"https://fubon-ebrokerdj.fbs.com.tw/z/zc/zco/zco_{symbol}{suffix}.djhtm"
     try:
         r=requests.get(url,headers=HEADERS,timeout=15)
         r.raise_for_status()
         r.encoding=r.apparent_encoding
         tables=pd.read_html(StringIO(r.text))
-        tables=[x for x in tables if len(x)>=2]
-        if tables:
-            return max(tables,key=lambda x: x.size),url,None
-        return pd.DataFrame(),url,"富邦分點頁目前沒有可解析表格"
+        rows=[]
+        for t in tables:
+            # flattened table text is robust to MoneyDJ's paired buy/sell layout
+            for _,rr in t.iterrows():
+                vals=[str(x).strip() for x in rr.tolist()]
+                if len(vals)>=10:
+                    rows.append(vals)
+        # Prefer parsing page text directly because the table is two broker lists side-by-side.
+        from bs4 import BeautifulSoup
+        txt=BeautifulSoup(r.text,"html.parser").get_text(" ",strip=True)
+        return txt,url,None
     except Exception as e:
-        return pd.DataFrame(),url,str(e)
+        return "",url,str(e)
+
+def parse_fubon_brokers(text):
+    names=["台灣摩根士丹利","摩根大通","美商高盛","美林","新加坡商瑞銀","花旗環球"]
+    out=[]
+    # MoneyDJ text sequence: broker buy sell net ratio. Capture signed/unsigned integer fields.
+    for name in names:
+        m=re.search(re.escape(name)+r"\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)%",text)
+        if m:
+            buy=int(m.group(1).replace(",","")); sell=int(m.group(2).replace(",","")); shown=int(m.group(3).replace(",",""))
+            net=buy-sell
+            out.append({"主要券商":name,"買進張數":buy,"賣出張數":sell,"淨買超":net,"成交占比%":float(m.group(4)),
+                        "隔日沖判斷":daytrade_flag(buy,sell,net)})
+        else:
+            out.append({"主要券商":name,"買進張數":np.nan,"賣出張數":np.nan,"淨買超":np.nan,"成交占比%":np.nan,"隔日沖判斷":"本期未進榜"})
+    return pd.DataFrame(out)
 
 def market_costs(h):
     out={}
@@ -106,7 +130,6 @@ def daytrade_flag(buy,sell,net):
 
 with st.sidebar:
     symbol=st.text_input("台股代號","3189").strip()
-    fubon_id=st.text_input("富邦分點代號（選填）","",help="例如你提供的 5660；用來查該券商分點公開資料")
     run=st.button("🔎 查詢 / 更新",type="primary",use_container_width=True)
     st.caption("行情快取 5 分鐘；分點快取 15 分鐘。")
 
@@ -114,7 +137,7 @@ ticker,h,current,price_err=stock_data(symbol)
 branch=pd.DataFrame()
 branch_url=f"https://www.wantgoo.com/stock/etf/{symbol}/major-investors/branch-buysell"
 branch_err="WantGoo 僅提供瀏覽器登入後查閱；Streamlit 不直接爬取登入資料。"
-fubon_df,fubon_url,fubon_err=fubon_branch(fubon_id) if fubon_id else (pd.DataFrame(),"",None)
+
 costs=market_costs(h) if not h.empty else {}
 
 tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])
@@ -134,64 +157,38 @@ with tabs[0]:
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:
-    st.subheader("主要券商成本")
-    period=st.segmented_control("成本期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日")
-    st.caption("固定追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球；另顯示公開資料中的主要分點。隔日沖為買賣結構推估，不代表該券商實際策略。")
-    core=["摩根士丹利","摩根大通","美林","高盛","瑞銀","花旗環球"]
-    if fubon_id and not fubon_df.empty:
-        d=fubon_df.copy()
-        d.columns=[str(c[-1] if isinstance(c,tuple) else c).strip() for c in d.columns]
-        broker=find_col(d.columns,["券商","分點"])
-        buy=find_col(d.columns,["買進","買張","買"])
-        sell=find_col(d.columns,["賣出","賣張","賣"])
-        avg_buy=find_col(d.columns,["買均","買進均價","平均買"])
-        avg_sell=find_col(d.columns,["賣均","賣出均價","平均賣"])
-        if broker:
-            out=pd.DataFrame({"主要券商":core})
-            rows=[]
-            for name in core:
-                hit=d[d[broker].astype(str).str.contains(name,regex=False)]
-                row={"主要券商":name,"期間":f"{period}日"}
-                if len(hit):
-                    r=hit.iloc[0]
-                    bv=float(clean_num(pd.Series([r[buy]])).iloc[0]) if buy else np.nan
-                    sv=float(clean_num(pd.Series([r[sell]])).iloc[0]) if sell else np.nan
-                    bc=float(clean_num(pd.Series([r[avg_buy]])).iloc[0]) if avg_buy else np.nan
-                    sc=float(clean_num(pd.Series([r[avg_sell]])).iloc[0]) if avg_sell else np.nan
-                    row.update({"買進張數":bv,"賣出張數":sv,"淨買超":bv-sv if pd.notna(bv) and pd.notna(sv) else np.nan,
-                                "平均買進成本":bc,"平均賣出價":sc,
-                                "現價距成本%":(current/bc-1)*100 if pd.notna(bc) and bc and pd.notna(current) else np.nan,
-                                "隔日沖判斷":daytrade_flag(bv,sv,bv-sv) if pd.notna(bv) and pd.notna(sv) else "資料不足"})
-                rows.append(row)
-            cost_table=pd.DataFrame(rows)
-            st.dataframe(cost_table,use_container_width=True,hide_index=True,
-                column_config={"平均買進成本":st.column_config.NumberColumn(format="%.2f"),
-                               "平均賣出價":st.column_config.NumberColumn(format="%.2f"),
-                               "現價距成本%":st.column_config.NumberColumn(format="%.2f%%")})
-            if buy and sell:
-                x=d.copy();x["_buy"]=clean_num(x[buy]);x["_sell"]=clean_num(x[sell]);x["_net"]=x["_buy"]-x["_sell"]
-                x["隔日沖判斷"]=[daytrade_flag(bv,sv,nv) for bv,sv,nv in zip(x["_buy"],x["_sell"],x["_net"])]
-                st.subheader("其他主要買超分點")
-                show=[c for c in [broker,buy,sell,avg_buy,avg_sell] if c]+["隔日沖判斷"]
-                st.dataframe(x.sort_values("_net",ascending=False).head(10)[show],use_container_width=True,hide_index=True)
-        else:
-            st.warning("富邦表格已取得，但目前無法辨識券商名稱欄位。")
+    st.subheader("主要券商成本／籌碼")
+    period=st.segmented_control("期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日",key="broker_period")
+    text_data,fubon_url,fubon_err=fubon_stock_brokers(symbol,period)
+    if text_data:
+        broker_df=parse_fubon_brokers(text_data)
+        st.dataframe(broker_df,use_container_width=True,hide_index=True)
+        st.caption("此公開頁提供各券商買進、賣出、淨買賣超與成交占比；頁面顯示的『平均買超/賣超成本』是排行合計成本，不是每一家券商的個別成本，因此不把它誤標成單一券商成本。")
+        # show aggregate costs if present
+        mb=re.search(r"平均買超成本\s*([\d.]+)",text_data)
+        ms=re.search(r"平均賣超成本\s*([\d.]+)",text_data)
+        c1,c2=st.columns(2)
+        c1.metric("排行平均買超成本",mb.group(1) if mb else "—")
+        c2.metric("排行平均賣超成本",ms.group(1) if ms else "—")
     else:
-        st.info("目前主要券商成本需要富邦分點資料。左側輸入可用的富邦分點代號後會自動計算；下一版再把股票代號直接對應到分點排行。")
-    if fubon_id:
-        st.link_button("富邦 eBrokerDJ 原始資料",fubon_url)
+        st.warning("富邦個股分點資料讀取失敗："+str(fubon_err))
+    st.link_button("富邦 eBrokerDJ 個股分點原始頁",fubon_url)
     st.link_button("WantGoo 此股分點頁（登入後交叉查看）",branch_url)
 
 with tabs[2]:
-    st.subheader("摩根／美林／高盛追蹤")
-    st.caption("不再以 WantGoo 伺服器爬取作為唯一來源；避免 403 被誤顯示成資料為零。")
-    if not branch.empty:
-        broker=find_col(branch.columns,["券商"])
-        if broker:
-            foreign=branch[branch[broker].astype(str).str.contains(r"摩根|JPM|美林|Merrill|高盛|Goldman",case=False,regex=True)]
-            if len(foreign):st.dataframe(foreign,use_container_width=True,hide_index=True)
-            else:st.info("目前公開表格中未找到摩根／美林／高盛；可能不在排行内或數值受會員權限限制。")
-    else: st.warning(branch_err or "分點資料目前不可用")
+    st.subheader("外資券商追蹤")
+    st.caption("自動追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球。")
+    foreign_period=st.segmented_control("外資期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日",key="foreign_period")
+    ft,fu,fe=fubon_stock_brokers(symbol,foreign_period)
+    if ft:
+        fd=parse_fubon_brokers(ft)
+        st.dataframe(fd,use_container_width=True,hide_index=True)
+        valid=fd["淨買超"].dropna()
+        if len(valid):
+            st.metric("六大外資分點合計淨買賣",f"{valid.sum():,.0f} 張")
+    else:
+        st.warning("外資分點資料讀取失敗："+str(fe))
+    st.link_button("查看資料原頁",fu)
 
 with tabs[3]:
     st.subheader("期貨市場")

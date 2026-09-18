@@ -98,16 +98,25 @@ def market_costs(h):
     return out
 
 def foreign_broker_cost_estimate(h, broker_df, days):
-    """六大外資分點成本估算：公開分點只有期間買賣張數，無逐筆成交價；以期間每日典型價×成交量估計買進價格。"""
+    """用區間分點買賣張數 + 日線價格估計各外資分點的累積持倉成本。"""
     if h.empty or broker_df.empty: return broker_df.copy(), np.nan
     d=h.tail(int(days)).copy()
     if d.empty: return broker_df.copy(), np.nan
     typical=(d["High"]+d["Low"]+d["Close"])/3 if all(c in d.columns for c in ["High","Low","Close"]) else d["Close"]
-    px=np.average(typical,weights=d["Volume"]) if d["Volume"].sum()>0 else float(typical.mean())
+    market_px=np.average(typical,weights=d["Volume"]) if d["Volume"].sum()>0 else float(typical.mean())
     out=broker_df.copy()
-    out["估算買進成本"]=np.where(out["買進張數"].fillna(0)>0,px,np.nan)
+    # 沒有逐筆分點成交價時，以區間市場成交重心為基準；依各分點淨買賣強度做小幅價格重心調整，
+    # 讓各分點估值可比較，但仍明確標示為模型估算而非真實庫存成本。
+    total=(out["買進張數"].fillna(0)+out["賣出張數"].fillna(0)).replace(0,np.nan)
+    pressure=(out["淨買超"].fillna(0)/total).clip(-1,1).fillna(0)
+    daily_range=((d["High"]-d["Low"])/d["Close"]).replace([np.inf,-np.inf],np.nan).mean() if all(c in d.columns for c in ["High","Low","Close"]) else 0
+    adj=(daily_range if pd.notna(daily_range) else 0)*0.25
+    out["分點估算買進成本"]=np.where(out["買進張數"].fillna(0)>0,market_px*(1+pressure*adj),np.nan)
     out["估算持倉張數"]=out["淨買超"].clip(lower=0)
-    return out,px
+    weights=out["估算持倉張數"].fillna(0)
+    composite=np.average(out.loc[weights>0,"分點估算買進成本"],weights=weights[weights>0]) if (weights>0).any() else market_px
+    return out,composite
+
 def find_col(cols,keys):
     for c in cols:
         if any(k in str(c) for k in keys): return c
@@ -309,9 +318,14 @@ with tabs[2]:
     if ft:
         fd=parse_fubon_brokers(ft)
         fd,foreign_est=foreign_broker_cost_estimate(h,fd,foreign_period)
-        fd["現價距估算成本%"]=np.where(fd["估算買進成本"].notna(),(current/fd["估算買進成本"]-1)*100,np.nan)
+        fd["現價距分點估算成本%"]=np.where(fd["分點估算買進成本"].notna(),(current/fd["分點估算買進成本"]-1)*100,np.nan)
         st.dataframe(fd,use_container_width=True,hide_index=True)
         if pd.notna(foreign_est): st.metric("六大外資估算成本",f"{foreign_est:,.2f}",f"現價 {(current/foreign_est-1)*100:+.2f}%")
+        cost_chart=fd.dropna(subset=["分點估算買進成本"]).set_index("主要券商")
+        if not cost_chart.empty:
+            st.markdown("#### 六大外資分點估算成本")
+            st.bar_chart(cost_chart["分點估算買進成本"],horizontal=True)
+            st.caption("各分點成本是模型估算：以區間成交重心為基準，再依該分點買賣壓力與期間日內波幅微調；不是券商公布的真實庫存成本。")
         fchart=fd.dropna(subset=["淨買超"]).set_index("主要券商")
         if not fchart.empty:
             st.bar_chart(fchart["淨買超"],horizontal=True)

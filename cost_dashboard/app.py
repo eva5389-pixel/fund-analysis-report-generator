@@ -183,7 +183,8 @@ with tabs[1]:
     st.link_button("WantGoo 此股分點頁（登入後交叉查看）",branch_url)
 
 with tabs[2]:
-    st.subheader("摩根／美林／高盛追蹤")\n    st.caption("不再以 WantGoo 伺服器爬取作為唯一來源；避免 403 被誤顯示成資料為零。")
+    st.subheader("摩根／美林／高盛追蹤")
+    st.caption("不再以 WantGoo 伺服器爬取作為唯一來源；避免 403 被誤顯示成資料為零。")
     if not branch.empty:
         broker=find_col(branch.columns,["券商"])
         if broker:

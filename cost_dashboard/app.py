@@ -119,6 +119,38 @@ def daytrade_flag(buy,sell,net):
         return "🟠 疑似短線/隔日沖"
     return "⚪ 未見明顯隔日沖特徵"
 
+@st.cache_data(ttl=300)
+def taiex_spot():
+    url="https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=15); r.raise_for_status()
+        d=r.json()
+        # Search all returned rows for TAIEX/發行量加權股價指數 and a plausible index value.
+        for row in d:
+            txt=" ".join(map(str,row.values()))
+            if "發行量加權股價指數" in txt or "TAIEX" in txt:
+                nums=[]
+                for v in row.values():
+                    try: nums.append(float(str(v).replace(",","")))
+                    except: pass
+                nums=[x for x in nums if x>1000]
+                if nums: return nums[-1],url,None
+        return np.nan,url,"找不到加權指數欄位"
+    except Exception as e: return np.nan,url,str(e)
+
+@st.cache_data(ttl=900)
+def taifex_options():
+    url="https://openapi.taifex.com.tw/v1/DailyMarketReportOfOptions"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
+        return pd.DataFrame(r.json()),url,None
+    except Exception as e: return pd.DataFrame(),url,str(e)
+
+def option_value_split(spot,strike,premium,cp):
+    intrinsic=max(spot-strike,0) if str(cp).upper().startswith(("C","買權")) else max(strike-spot,0)
+    time_value=max(premium-intrinsic,0)
+    return intrinsic,time_value
+
 @st.cache_data(ttl=900)
 def taifex_institutional():
     url="https://openapi.taifex.com.tw/v1/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"
@@ -244,6 +276,11 @@ with tabs[3]:
     st.caption("TAIFEX 三大法人資料只能觀察法人合計部位，無法直接辨識每一口是避險或方向交易；下方採『現貨－期貨對照』做研究性推估。")
     td,tu,te=taifex_institutional()
     if not td.empty:
+        spot,spot_url,spot_err=taiex_spot()
+        if pd.notna(spot):
+            st.metric("避險標的：臺灣加權股價指數",f"{spot:,.2f} 點")
+        else:
+            st.caption("加權指數現貨價暫時無法取得："+str(spot_err))
         # Flexible column discovery across TAIFEX OpenAPI naming variants
         cols=list(td.columns)
         product=next((c for c in cols if "商品" in str(c)),None)
@@ -349,6 +386,41 @@ with tabs[3]:
             ls=tx.groupby(ident,as_index=False)[[long_oi,short_oi]].sum()
             st.markdown("#### 多方 vs 空方未平倉")
             st.bar_chart(ls,x=ident,y=[long_oi,short_oi],horizontal=True,use_container_width=True)
+    st.markdown("### 選擇權：內涵價值 vs 時間價值")
+    st.caption("期貨本身沒有選擇權式的『時間價值／內涵價值』拆分；這裡針對臺指選擇權 TXO 計算。")
+    od,ou,oe=taifex_options()
+    if not od.empty and pd.notna(spot):
+        oc=list(od.columns)
+        prod=next((c for c in oc if "商品" in str(c)),None)
+        strike_c=next((c for c in oc if "履約價" in str(c)),None)
+        cp_c=next((c for c in oc if "買賣權" in str(c) or "買權賣權" in str(c)),None)
+        close_c=next((c for c in oc if "收盤價" in str(c)),None)
+        expiry_c=next((c for c in oc if "到期" in str(c) or "契約月份" in str(c)),None)
+        opt=od.copy()
+        if prod:
+            m=opt[prod].astype(str).str.contains("臺指選擇權|台指選擇權|TXO",regex=True,na=False)
+            if m.any(): opt=opt[m]
+        if strike_c and cp_c and close_c:
+            opt[strike_c]=pd.to_numeric(opt[strike_c].astype(str).str.replace(",","",regex=False),errors="coerce")
+            opt[close_c]=pd.to_numeric(opt[close_c].astype(str).str.replace(",","",regex=False),errors="coerce")
+            opt=opt.dropna(subset=[strike_c,close_c])
+            # Focus on strikes nearest spot for a useful hedge dashboard.
+            opt["_距現貨"]=abs(opt[strike_c]-spot)
+            opt=opt.sort_values("_距現貨").head(20).copy()
+            vals=opt.apply(lambda r: option_value_split(spot,float(r[strike_c]),float(r[close_c]),str(r[cp_c])),axis=1)
+            opt["內涵價值"]=vals.map(lambda x:x[0])
+            opt["時間價值"]=vals.map(lambda x:x[1])
+            opt["時間價值占權利金%"]=np.where(opt[close_c]>0,opt["時間價值"]/opt[close_c]*100,np.nan)
+            showo=[c for c in [expiry_c,strike_c,cp_c,close_c] if c]+["內涵價值","時間價值","時間價值占權利金%"]
+            st.dataframe(opt[showo],use_container_width=True,hide_index=True)
+            charto=opt[[strike_c,cp_c,"內涵價值","時間價值"]].copy()
+            charto["契約"]=charto[strike_c].astype(str)+" "+charto[cp_c].astype(str)
+            st.bar_chart(charto.set_index("契約")[["內涵價值","時間價值"]],horizontal=True)
+            st.caption("內涵價值：Call=max(現貨−履約價,0)，Put=max(履約價−現貨,0)；時間價值=max(權利金−內涵價值,0)。使用公開日行情時，這是收盤時點估算。")
+        else:
+            st.info("TAIFEX 選擇權資料已取得，但欄位格式暫時無法自動辨識。")
+    else:
+        st.info("臺指選擇權公開行情暫時無法取得："+str(oe))
     st.link_button("TAIFEX OpenAPI",tu)
 
 with tabs[4]:

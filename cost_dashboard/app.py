@@ -120,18 +120,51 @@ with tabs[0]:
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:
-    st.subheader("券商分點資料")
-    st.caption("主要來源改為富邦 eBrokerDJ 公開頁；WantGoo 僅保留外部查閱，避免 Streamlit Cloud 403。")
-    if fubon_id:
-        if not fubon_df.empty:
-            st.success("富邦 eBrokerDJ 分點資料已取得")
-            st.dataframe(fubon_df,use_container_width=True,hide_index=True)
+    st.subheader("主要券商成本")
+    period=st.segmented_control("成本期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日")
+    st.caption("固定追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球；另顯示公開資料中的主要分點。")
+    core=["摩根士丹利","摩根大通","美林","高盛","瑞銀","花旗環球"]
+    if fubon_id and not fubon_df.empty:
+        d=fubon_df.copy()
+        d.columns=[str(c[-1] if isinstance(c,tuple) else c).strip() for c in d.columns]
+        broker=find_col(d.columns,["券商","分點"])
+        buy=find_col(d.columns,["買進","買張","買"])
+        sell=find_col(d.columns,["賣出","賣張","賣"])
+        avg_buy=find_col(d.columns,["買均","買進均價","平均買"])
+        avg_sell=find_col(d.columns,["賣均","賣出均價","平均賣"])
+        if broker:
+            out=pd.DataFrame({"主要券商":core})
+            rows=[]
+            for name in core:
+                hit=d[d[broker].astype(str).str.contains(name,regex=False)]
+                row={"主要券商":name,"期間":f"{period}日"}
+                if len(hit):
+                    r=hit.iloc[0]
+                    bv=float(clean_num(pd.Series([r[buy]])).iloc[0]) if buy else np.nan
+                    sv=float(clean_num(pd.Series([r[sell]])).iloc[0]) if sell else np.nan
+                    bc=float(clean_num(pd.Series([r[avg_buy]])).iloc[0]) if avg_buy else np.nan
+                    sc=float(clean_num(pd.Series([r[avg_sell]])).iloc[0]) if avg_sell else np.nan
+                    row.update({"買進張數":bv,"賣出張數":sv,"淨買超":bv-sv if pd.notna(bv) and pd.notna(sv) else np.nan,
+                                "平均買進成本":bc,"平均賣出價":sc,
+                                "現價距成本%":(current/bc-1)*100 if pd.notna(bc) and bc and pd.notna(current) else np.nan})
+                rows.append(row)
+            cost_table=pd.DataFrame(rows)
+            st.dataframe(cost_table,use_container_width=True,hide_index=True,
+                column_config={"平均買進成本":st.column_config.NumberColumn(format="%.2f"),
+                               "平均賣出價":st.column_config.NumberColumn(format="%.2f"),
+                               "現價距成本%":st.column_config.NumberColumn(format="%.2f%%")})
+            if buy and sell:
+                x=d.copy();x["_buy"]=clean_num(x[buy]);x["_sell"]=clean_num(x[sell]);x["_net"]=x["_buy"]-x["_sell"]
+                st.subheader("其他主要買超分點")
+                show=[c for c in [broker,buy,sell,avg_buy,avg_sell] if c]
+                st.dataframe(x.sort_values("_net",ascending=False).head(10)[show],use_container_width=True,hide_index=True)
         else:
-            st.warning("富邦分點讀取失敗："+str(fubon_err))
-        st.link_button("開啟富邦分點原始頁",fubon_url)
+            st.warning("富邦表格已取得，但目前無法辨識券商名稱欄位。")
     else:
-        st.info("左側可輸入富邦分點代號（例如 5660）查看該分點公開資料。股票代號自動對應完整分點排行仍在接資料端點。")
-    st.link_button("WantGoo 此股分點頁（瀏覽器登入後查看）",branch_url)
+        st.info("目前主要券商成本需要富邦分點資料。左側輸入可用的富邦分點代號後會自動計算；下一版再把股票代號直接對應到分點排行。")
+    if fubon_id:
+        st.link_button("富邦 eBrokerDJ 原始資料",fubon_url)
+    st.link_button("WantGoo 此股分點頁（登入後交叉查看）",branch_url)
 
 with tabs[2]:
     st.subheader("摩根／美林／高盛追蹤")\n    st.caption("不再以 WantGoo 伺服器爬取作為唯一來源；避免 403 被誤顯示成資料為零。")

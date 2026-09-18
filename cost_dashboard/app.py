@@ -276,8 +276,8 @@ with tabs[0]:
                 mb=re.search(r"平均買超成本\s*([\d.]+)",txt)
                 ranked_cost=float(mb.group(1)) if mb else np.nan
                 est_df,est_cost=foreign_broker_cost_estimate(h,bdf,n)
-                                gap=(current/est_cost-1)*100 if pd.notna(est_cost) and est_cost else np.nan
-                                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"六大外資估算買進成本":est_cost,"現價距估算成本%":gap,"公開排行平均買超成本":ranked_cost})
+                gap=(current/est_cost-1)*100 if pd.notna(est_cost) and est_cost else np.nan
+                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"六大外資估算買進成本":est_cost,"現價距估算成本%":gap,"公開排行平均買超成本":ranked_cost})
         if foreign_cost_rows:
             fc=pd.DataFrame(foreign_cost_rows)
             st.dataframe(fc,use_container_width=True,hide_index=True)

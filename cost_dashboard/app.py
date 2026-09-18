@@ -140,11 +140,31 @@ def taiex_spot():
 
 @st.cache_data(ttl=900)
 def taifex_options():
-    url="https://openapi.taifex.com.tw/v1/DailyMarketReportOfOptions"
+    """TXO 行情：先試 OpenAPI，若非 JSON 則改抓 TAIFEX 官方每日行情 HTML。"""
+    api="https://openapi.taifex.com.tw/v1/DailyMarketReportOfOptions"
+    try:
+        r=requests.get(api,headers=HEADERS,timeout=20)
+        if r.ok and "json" in r.headers.get("content-type","").lower() and r.text.strip():
+            obj=r.json()
+            if obj: return pd.DataFrame(obj),api,None
+    except Exception:
+        pass
+    url="https://www.taifex.com.tw/enl/eng3/optDailyMarketReport"
     try:
         r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
-        return pd.DataFrame(r.json()),url,None
-    except Exception as e: return pd.DataFrame(),url,str(e)
+        soup=BeautifulSoup(r.text,"html.parser")
+        rows=[]
+        for tr in soup.select("table tr"):
+            cells=[c.get_text(" ",strip=True) for c in tr.select("th,td")]
+            if len(cells)>=10 and cells[0]=="TXO" and cells[4] in ["Call","Put"]:
+                rows.append(cells[:18])
+        if rows:
+            names=["Contract","Contract Month","Contract Date","Strike Price","Call/Put","Open","High","Low","Last Traded Price","Settlement Price","Change","Change%","Volume","Open Interest","Best Bid","Best Ask","Historical High","Historical Low"]
+            width=min(len(names),min(map(len,rows)))
+            return pd.DataFrame([x[:width] for x in rows],columns=names[:width]),url,None
+        return pd.DataFrame(),url,"官方頁面目前沒有可解析的 TXO 行情列"
+    except Exception as e:
+        return pd.DataFrame(),url,str(e)
 
 def option_value_split(spot,strike,premium,cp):
     intrinsic=max(spot-strike,0) if str(cp).upper().startswith(("C","買權")) else max(strike-spot,0)
@@ -392,10 +412,10 @@ with tabs[3]:
     if not od.empty and pd.notna(spot):
         oc=list(od.columns)
         prod=next((c for c in oc if "商品" in str(c)),None)
-        strike_c=next((c for c in oc if "履約價" in str(c)),None)
-        cp_c=next((c for c in oc if "買賣權" in str(c) or "買權賣權" in str(c)),None)
-        close_c=next((c for c in oc if "收盤價" in str(c)),None)
-        expiry_c=next((c for c in oc if "到期" in str(c) or "契約月份" in str(c)),None)
+        strike_c=next((c for c in oc if "履約價" in str(c) or "Strike" in str(c)),None)
+        cp_c=next((c for c in oc if "買賣權" in str(c) or "買權賣權" in str(c) or "Call/Put" in str(c)),None)
+        close_c=next((c for c in oc if "收盤價" in str(c) or "Last Traded Price" in str(c) or str(c)=="Close"),None)
+        expiry_c=next((c for c in oc if "到期" in str(c) or "契約月份" in str(c) or "Contract Month" in str(c)),None)
         opt=od.copy()
         if prod:
             m=opt[prod].astype(str).str.contains("臺指選擇權|台指選擇權|TXO",regex=True,na=False)

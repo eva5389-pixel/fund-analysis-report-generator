@@ -64,7 +64,10 @@ def wantgoo_branch(symbol):
 @st.cache_data(ttl=900)
 def fubon_stock_brokers(symbol, period=1):
     """富邦 eBrokerDJ / MoneyDJ 個股主力進出公開頁；純 BeautifulSoup，不依賴 lxml。"""
-    suffix={1:"",5:"_5",20:"_20",60:"_60"}.get(int(period),"")
+    # eBrokerDJ 個股主力頁可確認的期間頁面先限 1/5 日；不要把無效 suffix 回傳的預設頁誤標成 20/60 日。
+    suffix={1:"",5:"_5"}.get(int(period))
+    if suffix is None:
+        return "", "", f"{period}日分點頁目前無法由公開來源可靠取得，避免把重複的單日資料誤當成{period}日。"
     url=f"https://fubon-ebrokerdj.fbs.com.tw/z/zc/zco/zco_{symbol}{suffix}.djhtm"
     try:
         r=requests.get(url,headers=HEADERS,timeout=15)
@@ -265,7 +268,7 @@ with tabs[0]:
         st.markdown("### 六大外資分點進出成本")
         st.caption("成本改用摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球的分點進出資料；不再把市場成交量加權成本當成外資成本。")
         foreign_cost_rows=[]
-        for n in [1,5,20,60]:
+        for n in [1,5]:
             txt,src,err=fubon_stock_brokers(symbol,n)
             if txt:
                 bdf=parse_fubon_brokers(txt)
@@ -281,13 +284,13 @@ with tabs[0]:
         if foreign_cost_rows:
             fc=pd.DataFrame(foreign_cost_rows)
             st.dataframe(fc,use_container_width=True,hide_index=True)
-            st.caption("⚠️ 六大外資估算買進成本：因公開分點頁沒有逐筆成交價，暫以該期間每日典型價 (高+低+收)/3 的成交量加權價格估算；不是券商真實庫存成本。排行平均買超成本仍只作交叉參考。")
+            st.caption("⚠️ 已修正期間資料：公開來源目前只保留可可靠讀取的 1日／5日，避免 20日／60日網址回傳單日頁而造成假成本。成本仍是模型估算，不是券商真實庫存成本。")
             st.markdown("**真正的外資成本公式：** `外資成本 = 外資分點累計買進金額 ÷ 外資分點累計買進股數`。只有張數時，必須再取得逐日分點成交價或成交金額。")
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:
     st.subheader("主要券商成本／籌碼")
-    period=st.segmented_control("期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日",key="broker_period")
+    period=st.segmented_control("期間",[1,5],default=5,format_func=lambda x:f"{x}日",key="broker_period")
     text_data,fubon_url,fubon_err=fubon_stock_brokers(symbol,period)
     if text_data:
         broker_df=parse_fubon_brokers(text_data)
@@ -313,7 +316,7 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("外資券商追蹤")
     st.caption("自動追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球。")
-    foreign_period=st.segmented_control("外資期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日",key="foreign_period")
+    foreign_period=st.segmented_control("外資期間",[1,5],default=5,format_func=lambda x:f"{x}日",key="foreign_period")
     ft,fu,fe=fubon_stock_brokers(symbol,foreign_period)
     if ft:
         fd=parse_fubon_brokers(ft)

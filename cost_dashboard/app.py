@@ -97,7 +97,10 @@ with st.sidebar:
     st.caption("行情快取 5 分鐘；分點快取 15 分鐘。")
 
 ticker,h,current,price_err=stock_data(symbol)
-branch,branch_url,branch_err=wantgoo_branch(symbol)\nfubon_df,fubon_url,fubon_err=fubon_branch(fubon_id) if fubon_id else (pd.DataFrame(),"",None)
+branch=pd.DataFrame()
+branch_url=f"https://www.wantgoo.com/stock/etf/{symbol}/major-investors/branch-buysell"
+branch_err="WantGoo 僅提供瀏覽器登入後查閱；Streamlit 不直接爬取登入資料。"
+fubon_df,fubon_url,fubon_err=fubon_branch(fubon_id) if fubon_id else (pd.DataFrame(),"",None)
 costs=market_costs(h) if not h.empty else {}
 
 tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])

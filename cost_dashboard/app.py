@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-import yfinance as yf
 from io import StringIO
 from datetime import datetime
 
@@ -14,15 +13,25 @@ HEADERS={"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebK
 
 @st.cache_data(ttl=300)
 def stock_data(symbol):
+    # 直接使用 Yahoo Finance chart endpoint，避免 Streamlit Cloud 額外 yfinance 套件依賴
     last_err=None
     for suffix in [".TW",".TWO"]:
+        ticker=symbol+suffix
         try:
-            t=yf.Ticker(symbol+suffix)
-            h=t.history(period="6mo",auto_adjust=False)
+            url=f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            params={"range":"6mo","interval":"1d","events":"history","includeAdjustedClose":"true"}
+            res=requests.get(url,params=params,headers=HEADERS,timeout=15)
+            res.raise_for_status()
+            obj=res.json()["chart"]["result"]
+            if not obj: continue
+            x=obj[0]; q=x["indicators"]["quote"][0]
+            h=pd.DataFrame({"Close":q["close"],"Volume":q["volume"]},
+                index=pd.to_datetime(x["timestamp"],unit="s"))
+            h=h.dropna(subset=["Close"])
             if not h.empty:
-                info=t.fast_info
-                return symbol+suffix,h,float(h["Close"].iloc[-1]),None
-        except Exception as e:last_err=str(e)
+                return ticker,h,float(h["Close"].iloc[-1]),None
+        except Exception as e:
+            last_err=str(e)
     return None,pd.DataFrame(),np.nan,last_err or "查無行情"
 
 @st.cache_data(ttl=900)

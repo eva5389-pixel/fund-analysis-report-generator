@@ -91,7 +91,8 @@ def clean_num(s):
     return pd.to_numeric(s.astype(str).str.replace(",","",regex=False).str.replace("*","",regex=False),errors="coerce")
 
 with st.sidebar:
-    symbol=st.text_input("台股代號","3189").strip()\n    fubon_id=st.text_input("富邦分點代號（選填）","",help="例如你提供的 5660；用來查該券商分點公開資料")
+    symbol=st.text_input("台股代號","3189").strip()
+    fubon_id=st.text_input("富邦分點代號（選填）","",help="例如你提供的 5660；用來查該券商分點公開資料")
     run=st.button("🔎 查詢 / 更新",type="primary",use_container_width=True)
     st.caption("行情快取 5 分鐘；分點快取 15 分鐘。")
 

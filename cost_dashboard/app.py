@@ -231,6 +231,8 @@ branch_url=f"https://www.wantgoo.com/stock/etf/{symbol}/major-investors/branch-b
 branch_err="WantGoo 僅提供瀏覽器登入後查閱；Streamlit 不直接爬取登入資料。"
 
 costs=market_costs(h) if not h.empty else {}
+cost_method = "Σ(日收盤價 × 日成交量) ÷ Σ(日成交量)"
+cost_note = "目前使用日線 Close 作為每日代表價格，再以成交量加權；屬區間量價成本估算，不等於特定法人、券商或投資人的實際持倉成本。"
 
 tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])
 with tabs[0]:
@@ -246,6 +248,19 @@ with tabs[0]:
         for i,n in enumerate([5,10,20,60]):
             v=costs[n]; gap=(current/v-1)*100 if v else np.nan
             cols[i].metric(f"{n}日量價估算成本",f"{v:,.2f}",f"現價 {gap:+.1f}%")
+    st.caption(f"🧮 成本算法：{cost_method}")
+    st.caption(cost_note)
+    with st.expander("查看成本價計算明細"):
+        st.markdown("**公式：** `估算成本 = Σ(每日收盤價 × 每日成交量) ÷ Σ(每日成交量)`")
+        detail=[]
+        for n in [5,10,20,60]:
+            d=h.tail(n) if not h.empty else pd.DataFrame()
+            if not d.empty:
+                pv=(d["Close"]*d["Volume"]).sum()
+                vol=d["Volume"].sum()
+                detail.append({"期間":f"{n}日","Σ(收盤價×成交量)":pv,"Σ成交量":vol,"量價估算成本":pv/vol if vol else np.nan})
+        if detail: st.dataframe(pd.DataFrame(detail),use_container_width=True,hide_index=True)
+        st.caption("這不是標準盤中 VWAP：標準 VWAP 通常用盤中每筆成交價，或用每根 K 棒典型價 (High+Low+Close)/3，再按成交量加權。")
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:

@@ -90,6 +90,20 @@ def find_col(cols,keys):
 def clean_num(s):
     return pd.to_numeric(s.astype(str).str.replace(",","",regex=False).str.replace("*","",regex=False),errors="coerce")
 
+
+def daytrade_flag(buy,sell,net):
+    """僅以當期分點買賣結構判斷疑似隔日沖，不宣稱實際交易策略。"""
+    if pd.isna(buy) or pd.isna(sell): return "資料不足"
+    total=buy+sell
+    if total<=0: return "—"
+    turnover=min(buy,sell)/max(buy,sell) if max(buy,sell)>0 else 0
+    net_ratio=abs(net)/total
+    if total>=100 and turnover>=0.80 and net_ratio<=0.10:
+        return "🔴 高疑似隔日沖"
+    if total>=50 and turnover>=0.60 and net_ratio<=0.25:
+        return "🟠 疑似短線/隔日沖"
+    return "⚪ 未見明顯隔日沖特徵"
+
 with st.sidebar:
     symbol=st.text_input("台股代號","3189").strip()
     fubon_id=st.text_input("富邦分點代號（選填）","",help="例如你提供的 5660；用來查該券商分點公開資料")
@@ -122,7 +136,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("主要券商成本")
     period=st.segmented_control("成本期間",[1,5,20,60],default=5,format_func=lambda x:f"{x}日")
-    st.caption("固定追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球；另顯示公開資料中的主要分點。")
+    st.caption("固定追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球；另顯示公開資料中的主要分點。隔日沖為買賣結構推估，不代表該券商實際策略。")
     core=["摩根士丹利","摩根大通","美林","高盛","瑞銀","花旗環球"]
     if fubon_id and not fubon_df.empty:
         d=fubon_df.copy()
@@ -146,7 +160,8 @@ with tabs[1]:
                     sc=float(clean_num(pd.Series([r[avg_sell]])).iloc[0]) if avg_sell else np.nan
                     row.update({"買進張數":bv,"賣出張數":sv,"淨買超":bv-sv if pd.notna(bv) and pd.notna(sv) else np.nan,
                                 "平均買進成本":bc,"平均賣出價":sc,
-                                "現價距成本%":(current/bc-1)*100 if pd.notna(bc) and bc and pd.notna(current) else np.nan})
+                                "現價距成本%":(current/bc-1)*100 if pd.notna(bc) and bc and pd.notna(current) else np.nan,
+                                "隔日沖判斷":daytrade_flag(bv,sv,bv-sv) if pd.notna(bv) and pd.notna(sv) else "資料不足"})
                 rows.append(row)
             cost_table=pd.DataFrame(rows)
             st.dataframe(cost_table,use_container_width=True,hide_index=True,
@@ -155,8 +170,9 @@ with tabs[1]:
                                "現價距成本%":st.column_config.NumberColumn(format="%.2f%%")})
             if buy and sell:
                 x=d.copy();x["_buy"]=clean_num(x[buy]);x["_sell"]=clean_num(x[sell]);x["_net"]=x["_buy"]-x["_sell"]
+                x["隔日沖判斷"]=[daytrade_flag(bv,sv,nv) for bv,sv,nv in zip(x["_buy"],x["_sell"],x["_net"])]
                 st.subheader("其他主要買超分點")
-                show=[c for c in [broker,buy,sell,avg_buy,avg_sell] if c]
+                show=[c for c in [broker,buy,sell,avg_buy,avg_sell] if c]+["隔日沖判斷"]
                 st.dataframe(x.sort_values("_net",ascending=False).head(10)[show],use_container_width=True,hide_index=True)
         else:
             st.warning("富邦表格已取得，但目前無法辨識券商名稱欄位。")

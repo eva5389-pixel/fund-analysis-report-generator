@@ -59,6 +59,22 @@ def wantgoo_branch(symbol):
         except Exception as e:last=str(e)
     return pd.DataFrame(),urls[0],locals().get("last","無法讀取 WantGoo")
 
+@st.cache_data(ttl=900)
+def fubon_branch(branch_id):
+    """讀取富邦 eBrokerDJ 公開分點頁；branch_id 例如 5660。"""
+    url=f"https://fubon-ebrokerdj.fbs.com.tw/z/zg/zgb/zgb0.djhtm?a={branch_id}&b={branch_id}"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=15)
+        r.raise_for_status()
+        r.encoding=r.apparent_encoding
+        tables=pd.read_html(StringIO(r.text))
+        tables=[x for x in tables if len(x)>=2]
+        if tables:
+            return max(tables,key=lambda x: x.size),url,None
+        return pd.DataFrame(),url,"富邦分點頁目前沒有可解析表格"
+    except Exception as e:
+        return pd.DataFrame(),url,str(e)
+
 def market_costs(h):
     out={}
     for n in [5,10,20,60]:
@@ -75,12 +91,12 @@ def clean_num(s):
     return pd.to_numeric(s.astype(str).str.replace(",","",regex=False).str.replace("*","",regex=False),errors="coerce")
 
 with st.sidebar:
-    symbol=st.text_input("台股代號","3189").strip()
+    symbol=st.text_input("台股代號","3189").strip()\n    fubon_id=st.text_input("富邦分點代號（選填）","",help="例如你提供的 5660；用來查該券商分點公開資料")
     run=st.button("🔎 查詢 / 更新",type="primary",use_container_width=True)
     st.caption("行情快取 5 分鐘；分點快取 15 分鐘。")
 
 ticker,h,current,price_err=stock_data(symbol)
-branch,branch_url,branch_err=wantgoo_branch(symbol)
+branch,branch_url,branch_err=wantgoo_branch(symbol)\nfubon_df,fubon_url,fubon_err=fubon_branch(fubon_id) if fubon_id else (pd.DataFrame(),"",None)
 costs=market_costs(h) if not h.empty else {}
 
 tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])

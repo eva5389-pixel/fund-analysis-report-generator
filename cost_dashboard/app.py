@@ -97,6 +97,17 @@ def market_costs(h):
         out[n]=np.average(d["Close"],weights=d["Volume"]) if len(d) and d["Volume"].sum()>0 else np.nan
     return out
 
+def foreign_broker_cost_estimate(h, broker_df, days):
+    """六大外資分點成本估算：公開分點只有期間買賣張數，無逐筆成交價；以期間每日典型價×成交量估計買進價格。"""
+    if h.empty or broker_df.empty: return broker_df.copy(), np.nan
+    d=h.tail(int(days)).copy()
+    if d.empty: return broker_df.copy(), np.nan
+    typical=(d["High"]+d["Low"]+d["Close"])/3 if all(c in d.columns for c in ["High","Low","Close"]) else d["Close"]
+    px=np.average(typical,weights=d["Volume"]) if d["Volume"].sum()>0 else float(typical.mean())
+    out=broker_df.copy()
+    out["估算買進成本"]=np.where(out["買進張數"].fillna(0)>0,px,np.nan)
+    out["估算持倉張數"]=out["淨買超"].clip(lower=0)
+    return out,px
 def find_col(cols,keys):
     for c in cols:
         if any(k in str(c) for k in keys): return c
@@ -255,11 +266,13 @@ with tabs[0]:
                 net=buy-sell if pd.notna(buy) and pd.notna(sell) else np.nan
                 mb=re.search(r"平均買超成本\s*([\d.]+)",txt)
                 ranked_cost=float(mb.group(1)) if mb else np.nan
-                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"公開排行平均買超成本":ranked_cost})
+                est_df,est_cost=foreign_broker_cost_estimate(h,bdf,n)
+                                gap=(current/est_cost-1)*100 if pd.notna(est_cost) and est_cost else np.nan
+                                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"六大外資估算買進成本":est_cost,"現價距估算成本%":gap,"公開排行平均買超成本":ranked_cost})
         if foreign_cost_rows:
             fc=pd.DataFrame(foreign_cost_rows)
             st.dataframe(fc,use_container_width=True,hide_index=True)
-            st.caption("⚠️ 公開頁目前沒有六大外資各分點的成交金額/成交價，因此不能把張數直接反推成真正外資平均成本；排行平均買超成本只作交叉參考。")
+            st.caption("⚠️ 六大外資估算買進成本：因公開分點頁沒有逐筆成交價，暫以該期間每日典型價 (高+低+收)/3 的成交量加權價格估算；不是券商真實庫存成本。排行平均買超成本仍只作交叉參考。")
             st.markdown("**真正的外資成本公式：** `外資成本 = 外資分點累計買進金額 ÷ 外資分點累計買進股數`。只有張數時，必須再取得逐日分點成交價或成交金額。")
     else: st.error("行情取得失敗："+str(price_err))
 
@@ -295,7 +308,10 @@ with tabs[2]:
     ft,fu,fe=fubon_stock_brokers(symbol,foreign_period)
     if ft:
         fd=parse_fubon_brokers(ft)
+        fd,foreign_est=foreign_broker_cost_estimate(h,fd,foreign_period)
+        fd["現價距估算成本%"]=np.where(fd["估算買進成本"].notna(),(current/fd["估算買進成本"]-1)*100,np.nan)
         st.dataframe(fd,use_container_width=True,hide_index=True)
+        if pd.notna(foreign_est): st.metric("六大外資估算成本",f"{foreign_est:,.2f}",f"現價 {(current/foreign_est-1)*100:+.2f}%")
         fchart=fd.dropna(subset=["淨買超"]).set_index("主要券商")
         if not fchart.empty:
             st.bar_chart(fchart["淨買超"],horizontal=True)

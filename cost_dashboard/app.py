@@ -241,26 +241,60 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("期貨市場")
+    st.caption("TAIFEX 三大法人資料只能觀察法人合計部位，無法直接辨識每一口是避險或方向交易；下方採『現貨－期貨對照』做研究性推估。")
     td,tu,te=taifex_institutional()
     if not td.empty:
-        st.caption("資料源：TAIFEX 官方 OpenAPI（三大法人－各期貨契約－依日期）")
-        product=numeric_col(td,["商品"])
-        ident=numeric_col(td,["身份"])
-        netoi=numeric_col(td,["未平倉","淨額"])
-        datec=numeric_col(td,["日期"])
+        # Flexible column discovery across TAIFEX OpenAPI naming variants
+        cols=list(td.columns)
+        product=next((c for c in cols if "商品" in str(c)),None)
+        ident=next((c for c in cols if "身份" in str(c) or "身分" in str(c)),None)
+        datec=next((c for c in cols if "日期" in str(c)),None)
+        oi_net=next((c for c in cols if "未平倉" in str(c) and ("淨" in str(c) or "多空" in str(c)) and ("口" in str(c) or "數" in str(c))),None)
+        long_oi=next((c for c in cols if "未平倉" in str(c) and "多方" in str(c) and ("口" in str(c) or "數" in str(c))),None)
+        short_oi=next((c for c in cols if "未平倉" in str(c) and "空方" in str(c) and ("口" in str(c) or "數" in str(c))),None)
         tx=td.copy()
         if product:
-            mask=tx[product].astype(str).str.contains("臺股期貨|台股期貨|TX",regex=True,na=False)
+            mask=tx[product].astype(str).str.contains("臺股期貨|台股期貨",regex=True,na=False)
             if mask.any(): tx=tx[mask]
-        if netoi:
-            tx[netoi]=pd.to_numeric(tx[netoi].astype(str).str.replace(",","",regex=False),errors="coerce")
-        show=[c for c in [datec,product,ident,netoi] if c]
+        for c in [oi_net,long_oi,short_oi]:
+            if c: tx[c]=pd.to_numeric(tx[c].astype(str).str.replace(",","",regex=False),errors="coerce")
+        if oi_net is None and long_oi and short_oi:
+            tx["_淨未平倉"]=tx[long_oi]-tx[short_oi]; oi_net="_淨未平倉"
+
+        show=[c for c in [datec,product,ident,long_oi,short_oi,oi_net] if c]
         st.dataframe(tx[show] if show else tx,use_container_width=True,hide_index=True)
-        if ident and netoi and tx[netoi].notna().any():
-            cc=tx.groupby(ident,as_index=False)[netoi].sum().set_index(ident)
-            st.markdown("#### 三大法人期貨淨未平倉")
-            st.bar_chart(cc[netoi],horizontal=True)
-    else: st.warning("TAIFEX 官方資料暫時讀取失敗："+str(te))
+
+        if ident and oi_net and tx[oi_net].notna().any():
+            cc=tx.groupby(ident,as_index=False)[oi_net].sum()
+            st.markdown("#### 三大法人臺股期貨淨未平倉")
+            st.bar_chart(cc.set_index(ident)[oi_net],horizontal=True)
+
+            # Heuristic classification: do not assert true intent.
+            rows=[]
+            for _,r in cc.iterrows():
+                who=str(r[ident]); net=float(r[oi_net])
+                if who=="投信" and net>0:
+                    label="🟠 較可能含避險／配置調整"
+                    reason="投信期貨需和基金現貨曝險一起看；單靠期貨多空不能確認意圖"
+                elif who=="外資" and net<0:
+                    label="🟠 可能混合避險＋方向部位"
+                    reason="外資是多家機構合計，空單可能對沖現貨，也可能是方向交易"
+                elif who=="自營商":
+                    label="🟡 可能含造市／套利／避險"
+                    reason="自營商包含期貨及證券自營商，常同時存在造市、套利與避險需求"
+                else:
+                    label="⚪ 無法僅由三大法人資料判定"
+                    reason="需要搭配現貨買賣超、選擇權、跨月價差與部位變化"
+                rows.append({"法人":who,"淨未平倉口數":net,"部位性質推估":label,"判讀依據":reason})
+            judge=pd.DataFrame(rows)
+            st.markdown("#### 避險／方向部位推估")
+            st.dataframe(judge,use_container_width=True,hide_index=True)
+            st.caption("⚠️ 這是推估，不是 TAIFEX 對部位用途的官方分類。期交所也明確提醒：三大法人數字是眾多機構合計互抵結果，不能代表單一法人或整類法人的交易策略。")
+
+            st.markdown("#### 如何判斷")
+            st.markdown("**偏避險：** 現貨大量淨買，同期台指期空單增加；或自營商期貨與選擇權呈現明顯對沖結構。\n\n**偏方向：** 現貨與期貨方向一致，且淨未平倉連續增加；例如現貨賣超同時期貨空單持續增加。\n\n**混合／無法判定：** 現貨與期貨訊號不一致、或只有單日資料。")
+    else:
+        st.warning("TAIFEX 官方資料暫時讀取失敗："+str(te))
     st.link_button("TAIFEX OpenAPI",tu)
 
 with tabs[4]:

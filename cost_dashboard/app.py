@@ -302,6 +302,41 @@ with tabs[3]:
                 rows.append({"法人":who,"淨未平倉口數":net,"部位性質推估":label,"判讀依據":reason})
             judge=pd.DataFrame(rows)
             st.markdown("#### 避險／方向部位推估")
+            # 將「可能避險」部位的口數與契約名目金額一起顯示。
+            # TAIFEX API 金額欄通常以千元呈現；優先使用官方多/空方未平倉契約金額。
+            long_amt=next((c for c in cols if "未平倉" in str(c) and "多方" in str(c) and "金額" in str(c)),None)
+            short_amt=next((c for c in cols if "未平倉" in str(c) and "空方" in str(c) and "金額" in str(c)),None)
+            if not long_amt and len(tx.columns)>=5: long_amt=tx.columns[4]
+            if not short_amt and len(tx.columns)>=7: short_amt=tx.columns[6]
+            for c in [long_amt,short_amt]:
+                if c: tx[c]=pd.to_numeric(tx[c].astype(str).str.replace(",","",regex=False).str.replace(" ","",regex=False),errors="coerce")
+            hedge_rows=[]
+            if ident:
+                for who,g in tx.groupby(ident):
+                    lo=float(g[long_oi].sum()) if long_oi else np.nan
+                    so=float(g[short_oi].sum()) if short_oi else np.nan
+                    la=float(g[long_amt].sum()) if long_amt else np.nan
+                    sa=float(g[short_amt].sum()) if short_amt else np.nan
+                    # 只把「可能作為對沖的一側」列為估計，不宣稱全部都是避險。
+                    if str(who)=="投信" and lo>=so:
+                        hp,ha,direction=lo,la,"多方可能避險/配置部位"
+                    elif str(who)=="外資及陸資" and so>lo:
+                        hp,ha,direction=so,sa,"空方可能避險部位"
+                    elif str(who)=="自營商":
+                        hp,ha,direction=min(lo,so),min(la,sa),"雙邊造市/套利可能避險部位"
+                    else:
+                        hp,ha,direction=np.nan,np.nan,"無法判定"
+                    hedge_rows.append({"法人":who,"可能避險方向":direction,"可能避險口數（上限）":hp,
+                                       "對應未平倉契約金額（千元）":ha,
+                                       "約當億元":ha/100000 if pd.notna(ha) else np.nan})
+            if hedge_rows:
+                hedge=pd.DataFrame(hedge_rows)
+                st.markdown("#### 可能避險部位：口數與名目金額")
+                st.dataframe(hedge,use_container_width=True,hide_index=True)
+                hv=hedge.dropna(subset=["約當億元"]).set_index("法人")
+                if not hv.empty:
+                    st.bar_chart(hv["約當億元"],horizontal=True)
+                st.caption("『可能避險口數』是用途判讀的上限估計，不代表這些部位全部都是避險；金額採 TAIFEX 未平倉契約金額欄位，屬契約名目金額，不是實際投入保證金。")
             st.dataframe(judge,use_container_width=True,hide_index=True)
             st.caption("⚠️ 這是推估，不是 TAIFEX 對部位用途的官方分類。期交所也明確提醒：三大法人數字是眾多機構合計互抵結果，不能代表單一法人或整類法人的交易策略。")
 

@@ -264,10 +264,16 @@ with tabs[3]:
         show=[c for c in [datec,product,ident,long_oi,short_oi,oi_net] if c]
         st.dataframe(tx[show] if show else tx,use_container_width=True,hide_index=True)
 
-        if ident and oi_net and tx[oi_net].notna().any():
-            cc=tx.groupby(ident,as_index=False)[oi_net].sum()
+        if oi_net and tx[oi_net].notna().any():
+            if ident:
+                cc=tx.groupby(ident,as_index=False)[oi_net].sum()
+            else:
+                ident="法人"
+                cc=pd.DataFrame({ident:["三大法人合計"],oi_net:[tx[oi_net].sum()]})
             st.markdown("#### 三大法人臺股期貨淨未平倉")
-            st.bar_chart(cc.set_index(ident)[oi_net],horizontal=True)
+            plot_df=cc[[ident,oi_net]].dropna().copy()
+            plot_df[oi_net]=pd.to_numeric(plot_df[oi_net],errors="coerce").fillna(0)
+            st.bar_chart(plot_df,x=ident,y=oi_net,horizontal=True,use_container_width=True)
 
             # Heuristic classification: do not assert true intent.
             rows=[]

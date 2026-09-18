@@ -53,7 +53,7 @@ def wantgoo_branch(symbol):
             if candidates:
                 d=max(candidates,key=len).copy()
                 d.columns=[str(c[-1] if isinstance(c,tuple) else c).strip() for c in d.columns]
-                return d,url,None
+                return d,url,("WantGoo 公開頁會遮蔽部分買賣張數；目前僅顯示公開可讀欄位。" if d.astype(str).apply(lambda c: c.str.contains(r"\\*\\*\\*",regex=True).any()).any() else None)
             if "登入" in r.text or "會員" in r.text:
                 return pd.DataFrame(),url,"WantGoo 此個股完整分點數值需要會員登入，公開頁無法取得完整數字。"
         except Exception as e:last=str(e)

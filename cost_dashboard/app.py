@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import re
 from io import StringIO
+from bs4 import BeautifulSoup
 from datetime import datetime
 
 st.set_page_config(page_title="台股成本儀表板",page_icon="📊",layout="wide")
@@ -62,23 +63,13 @@ def wantgoo_branch(symbol):
 
 @st.cache_data(ttl=900)
 def fubon_stock_brokers(symbol, period=1):
-    """富邦 eBrokerDJ / MoneyDJ 個股主力進出公開頁。"""
+    """富邦 eBrokerDJ / MoneyDJ 個股主力進出公開頁；純 BeautifulSoup，不依賴 lxml。"""
     suffix={1:"",5:"_5",20:"_20",60:"_60"}.get(int(period),"")
     url=f"https://fubon-ebrokerdj.fbs.com.tw/z/zc/zco/zco_{symbol}{suffix}.djhtm"
     try:
         r=requests.get(url,headers=HEADERS,timeout=15)
         r.raise_for_status()
         r.encoding=r.apparent_encoding
-        tables=pd.read_html(StringIO(r.text))
-        rows=[]
-        for t in tables:
-            # flattened table text is robust to MoneyDJ's paired buy/sell layout
-            for _,rr in t.iterrows():
-                vals=[str(x).strip() for x in rr.tolist()]
-                if len(vals)>=10:
-                    rows.append(vals)
-        # Prefer parsing page text directly because the table is two broker lists side-by-side.
-        from bs4 import BeautifulSoup
         txt=BeautifulSoup(r.text,"html.parser").get_text(" ",strip=True)
         return txt,url,None
     except Exception as e:
@@ -128,6 +119,55 @@ def daytrade_flag(buy,sell,net):
         return "🟠 疑似短線/隔日沖"
     return "⚪ 未見明顯隔日沖特徵"
 
+@st.cache_data(ttl=900)
+def taifex_institutional():
+    url="https://openapi.taifex.com.tw/v1/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
+        d=pd.DataFrame(r.json())
+        return d,url,None
+    except Exception as e: return pd.DataFrame(),url,str(e)
+
+@st.cache_data(ttl=900)
+def twse_material(symbol):
+    urls=[
+      "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
+      "https://openapi.twse.com.tw/v1/opendata/t187ap04_O"
+    ]
+    frames=[]; errs=[]
+    for url in urls:
+        try:
+            r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
+            x=pd.DataFrame(r.json())
+            if not x.empty:
+                codecol=next((c for c in x.columns if "公司代號" in str(c)),None)
+                if codecol: x=x[x[codecol].astype(str).str.strip()==str(symbol)]
+                if not x.empty: frames.append(x)
+        except Exception as e: errs.append(str(e))
+    return (pd.concat(frames,ignore_index=True) if frames else pd.DataFrame()),urls[0],"; ".join(errs) if errs and not frames else None
+
+def numeric_col(df, words):
+    for c in df.columns:
+        if all(w in str(c) for w in words):
+            return c
+    return None
+
+@st.cache_data(ttl=1800)
+def pelosi_public():
+    url="https://nancypelosistocktracker.org/zh-TW"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
+        soup=BeautifulSoup(r.text,"html.parser")
+        rows=[]
+        for tr in soup.select("table tr"):
+            cells=[x.get_text(" ",strip=True) for x in tr.select("th,td")]
+            if len(cells)>=3: rows.append(cells)
+        if len(rows)>1:
+            width=max(map(len,rows)); rows=[x+[""]*(width-len(x)) for x in rows]
+            return pd.DataFrame(rows[1:],columns=rows[0]),url,None
+        return pd.DataFrame(),url,"公開追蹤頁為動態載入，伺服器 HTML 沒有交易表格。"
+    except Exception as e: return pd.DataFrame(),url,str(e)
+
 with st.sidebar:
     symbol=st.text_input("台股代號","3189").strip()
     run=st.button("🔎 查詢 / 更新",type="primary",use_container_width=True)
@@ -163,6 +203,12 @@ with tabs[1]:
     if text_data:
         broker_df=parse_fubon_brokers(text_data)
         st.dataframe(broker_df,use_container_width=True,hide_index=True)
+        chart_df=broker_df.dropna(subset=["淨買超"]).set_index("主要券商")
+        if not chart_df.empty:
+            st.markdown("#### 六大外資券商淨買賣超")
+            st.bar_chart(chart_df["淨買超"],horizontal=True)
+            st.markdown("#### 買進 vs 賣出")
+            st.bar_chart(chart_df[["買進張數","賣出張數"]],horizontal=True)
         st.caption("此公開頁提供各券商買進、賣出、淨買賣超與成交占比；頁面顯示的『平均買超/賣超成本』是排行合計成本，不是每一家券商的個別成本，因此不把它誤標成單一券商成本。")
         # show aggregate costs if present
         mb=re.search(r"平均買超成本\s*([\d.]+)",text_data)
@@ -183,6 +229,9 @@ with tabs[2]:
     if ft:
         fd=parse_fubon_brokers(ft)
         st.dataframe(fd,use_container_width=True,hide_index=True)
+        fchart=fd.dropna(subset=["淨買超"]).set_index("主要券商")
+        if not fchart.empty:
+            st.bar_chart(fchart["淨買超"],horizontal=True)
         valid=fd["淨買超"].dropna()
         if len(valid):
             st.metric("六大外資分點合計淨買賣",f"{valid.sum():,.0f} 張")
@@ -192,17 +241,60 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("期貨市場")
-    st.info("下一資料源：TAIFEX 官方三大法人、未平倉與台指期資料。此頁不再要求 CSV。")
-    st.link_button("TAIFEX 官方資料","https://www.taifex.com.tw/")
+    td,tu,te=taifex_institutional()
+    if not td.empty:
+        st.caption("資料源：TAIFEX 官方 OpenAPI（三大法人－各期貨契約－依日期）")
+        product=numeric_col(td,["商品"])
+        ident=numeric_col(td,["身份"])
+        netoi=numeric_col(td,["未平倉","淨額"])
+        datec=numeric_col(td,["日期"])
+        tx=td.copy()
+        if product:
+            mask=tx[product].astype(str).str.contains("臺股期貨|台股期貨|TX",regex=True,na=False)
+            if mask.any(): tx=tx[mask]
+        if netoi:
+            tx[netoi]=pd.to_numeric(tx[netoi].astype(str).str.replace(",","",regex=False),errors="coerce")
+        show=[c for c in [datec,product,ident,netoi] if c]
+        st.dataframe(tx[show] if show else tx,use_container_width=True,hide_index=True)
+        if ident and netoi and tx[netoi].notna().any():
+            cc=tx.groupby(ident,as_index=False)[netoi].sum().set_index(ident)
+            st.markdown("#### 三大法人期貨淨未平倉")
+            st.bar_chart(cc[netoi],horizontal=True)
+    else: st.warning("TAIFEX 官方資料暫時讀取失敗："+str(te))
+    st.link_button("TAIFEX OpenAPI",tu)
 
 with tabs[4]:
     st.subheader("Nancy Pelosi 公開交易")
-    st.info("此頁將接公開揭露資料並估算申報區間成本；不再要求 CSV。")
-    st.link_button("Pelosi Stock Tracker","https://nancypelosistocktracker.org/zh-TW")
+    pdx,pu,pe=pelosi_public()
+    if not pdx.empty:
+        st.dataframe(pdx,use_container_width=True,hide_index=True)
+        st.caption("直接顯示公開追蹤頁可讀取的交易表格；申報金額通常是區間，不把區間中點當成精確成交成本。")
+        # 若頁面存在可辨識 ticker 欄，顯示交易筆數圖
+        tc=next((c for c in pdx.columns if any(k in str(c).lower() for k in ["ticker","股票","代號"])),None)
+        if tc:
+            cnt=pdx[tc].astype(str).value_counts().head(15)
+            st.markdown("#### 公開交易筆數")
+            st.bar_chart(cnt,horizontal=True)
+    else:
+        st.warning("Pelosi 追蹤頁目前無法由 Streamlit 伺服器直接取得表格："+str(pe))
+        st.caption("這一頁不會捏造交易資料；等可讀的公開揭露來源接通後才會畫圖。")
+    st.link_button("Pelosi Stock Tracker",pu)
 
 with tabs[5]:
     st.subheader("台股重大訊息")
-    st.info("此頁將接 MOPS 公開資訊觀測站；不再要求 CSV。")
-    st.link_button("MOPS 公開資訊觀測站","https://mopsov.twse.com.tw/mops/web/index")
+    md,mu,me=twse_material(symbol)
+    if not md.empty:
+        st.caption(f"直接顯示 {symbol} 的 TWSE OpenAPI 每日重大訊息")
+        preferred=[c for c in md.columns if any(k in str(c) for k in ["日期","時間","公司代號","公司名稱","主旨","說明"])]
+        st.dataframe(md[preferred] if preferred else md,use_container_width=True,hide_index=True)
+        dc=next((c for c in md.columns if "日期" in str(c)),None)
+        if dc:
+            counts=md[dc].astype(str).value_counts().sort_index()
+            st.markdown("#### 重大訊息發布筆數")
+            st.bar_chart(counts)
+        st.metric("目前取得重大訊息",f"{len(md)} 筆")
+    else:
+        st.info(f"目前官方 OpenAPI 沒有取得 {symbol} 的重大訊息。"+((" "+str(me)) if me else ""))
+    st.link_button("TWSE OpenAPI 重大訊息",mu)
 
 st.caption("最後重新執行："+datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

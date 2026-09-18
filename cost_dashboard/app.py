@@ -253,11 +253,19 @@ with tabs[3]:
         long_oi=next((c for c in cols if "未平倉" in str(c) and "多方" in str(c) and ("口" in str(c) or "數" in str(c))),None)
         short_oi=next((c for c in cols if "未平倉" in str(c) and "空方" in str(c) and ("口" in str(c) or "數" in str(c))),None)
         tx=td.copy()
+        # TAIFEX OpenAPI 欄名可能是英文代碼；依目前回傳順序補標準欄位。
+        if not product and len(tx.columns)>=2: product=tx.columns[1]
+        if not ident and len(tx.columns)>=3: ident=tx.columns[2]
+        if not datec and len(tx.columns)>=1: datec=tx.columns[0]
+        # 目前 API 常見順序：日期/商品/身份/多方口數/多方金額/空方口數/空方金額/多空淨額口數/...
+        if not long_oi and len(tx.columns)>=4: long_oi=tx.columns[3]
+        if not short_oi and len(tx.columns)>=6: short_oi=tx.columns[5]
+        if not oi_net and len(tx.columns)>=8: oi_net=tx.columns[7]
         if product:
             mask=tx[product].astype(str).str.contains("臺股期貨|台股期貨",regex=True,na=False)
             if mask.any(): tx=tx[mask]
         for c in [oi_net,long_oi,short_oi]:
-            if c: tx[c]=pd.to_numeric(tx[c].astype(str).str.replace(",","",regex=False),errors="coerce")
+            if c: tx[c]=pd.to_numeric(tx[c].astype(str).str.replace(",","",regex=False).str.replace(" ","",regex=False),errors="coerce")
         if oi_net is None and long_oi and short_oi:
             tx["_淨未平倉"]=tx[long_oi]-tx[short_oi]; oi_net="_淨未平倉"
 
@@ -301,6 +309,11 @@ with tabs[3]:
             st.markdown("**偏避險：** 現貨大量淨買，同期台指期空單增加；或自營商期貨與選擇權呈現明顯對沖結構。\n\n**偏方向：** 現貨與期貨方向一致，且淨未平倉連續增加；例如現貨賣超同時期貨空單持續增加。\n\n**混合／無法判定：** 現貨與期貨訊號不一致、或只有單日資料。")
     else:
         st.warning("TAIFEX 官方資料暫時讀取失敗："+str(te))
+        # 第二張圖：多方與空方未平倉，讓圖一定出現在表格下方。
+        if ident and long_oi and short_oi and tx[long_oi].notna().any():
+            ls=tx.groupby(ident,as_index=False)[[long_oi,short_oi]].sum()
+            st.markdown("#### 多方 vs 空方未平倉")
+            st.bar_chart(ls,x=ident,y=[long_oi,short_oi],horizontal=True,use_container_width=True)
     st.link_button("TAIFEX OpenAPI",tu)
 
 with tabs[4]:

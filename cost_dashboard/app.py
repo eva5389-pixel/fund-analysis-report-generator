@@ -231,8 +231,6 @@ branch_url=f"https://www.wantgoo.com/stock/etf/{symbol}/major-investors/branch-b
 branch_err="WantGoo 僅提供瀏覽器登入後查閱；Streamlit 不直接爬取登入資料。"
 
 costs=market_costs(h) if not h.empty else {}
-cost_method = "Σ(日收盤價 × 日成交量) ÷ Σ(日成交量)"
-cost_note = "目前使用日線 Close 作為每日代表價格，再以成交量加權；屬區間量價成本估算，不等於特定法人、券商或投資人的實際持倉成本。"
 
 tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])
 with tabs[0]:
@@ -244,23 +242,25 @@ with tabs[0]:
         c2.metric("資料日期",str(h.index[-1].date()))
         c3.metric("Yahoo 代號",ticker)
         st.line_chart(h["Close"])
-        cols=st.columns(4)
-        for i,n in enumerate([5,10,20,60]):
-            v=costs[n]; gap=(current/v-1)*100 if v else np.nan
-            cols[i].metric(f"{n}日量價估算成本",f"{v:,.2f}",f"現價 {gap:+.1f}%")
-    st.caption(f"🧮 成本算法：{cost_method}")
-    st.caption(cost_note)
-    with st.expander("查看成本價計算明細"):
-        st.markdown("**公式：** `估算成本 = Σ(每日收盤價 × 每日成交量) ÷ Σ(每日成交量)`")
-        detail=[]
-        for n in [5,10,20,60]:
-            d=h.tail(n) if not h.empty else pd.DataFrame()
-            if not d.empty:
-                pv=(d["Close"]*d["Volume"]).sum()
-                vol=d["Volume"].sum()
-                detail.append({"期間":f"{n}日","Σ(收盤價×成交量)":pv,"Σ成交量":vol,"量價估算成本":pv/vol if vol else np.nan})
-        if detail: st.dataframe(pd.DataFrame(detail),use_container_width=True,hide_index=True)
-        st.caption("這不是標準盤中 VWAP：標準 VWAP 通常用盤中每筆成交價，或用每根 K 棒典型價 (High+Low+Close)/3，再按成交量加權。")
+        st.markdown("### 六大外資分點進出成本")
+        st.caption("成本改用摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球的分點進出資料；不再把市場成交量加權成本當成外資成本。")
+        foreign_cost_rows=[]
+        for n in [1,5,20,60]:
+            txt,src,err=fubon_stock_brokers(symbol,n)
+            if txt:
+                bdf=parse_fubon_brokers(txt)
+                vb=bdf.dropna(subset=["買進張數"])
+                buy=float(vb["買進張數"].sum()) if not vb.empty else np.nan
+                sell=float(vb["賣出張數"].sum()) if not vb.empty else np.nan
+                net=buy-sell if pd.notna(buy) and pd.notna(sell) else np.nan
+                mb=re.search(r"平均買超成本\s*([\d.]+)",txt)
+                ranked_cost=float(mb.group(1)) if mb else np.nan
+                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"公開排行平均買超成本":ranked_cost})
+        if foreign_cost_rows:
+            fc=pd.DataFrame(foreign_cost_rows)
+            st.dataframe(fc,use_container_width=True,hide_index=True)
+            st.caption("⚠️ 公開頁目前沒有六大外資各分點的成交金額/成交價，因此不能把張數直接反推成真正外資平均成本；排行平均買超成本只作交叉參考。")
+            st.markdown("**真正的外資成本公式：** `外資成本 = 外資分點累計買進金額 ÷ 外資分點累計買進股數`。只有張數時，必須再取得逐日分點成交價或成交金額。")
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:

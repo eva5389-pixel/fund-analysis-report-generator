@@ -117,26 +117,21 @@ with tabs[0]:
     else: st.error("行情取得失敗："+str(price_err))
 
 with tabs[1]:
-    st.subheader("WantGoo 券商分點")
-    st.caption("來源：玩股網個股券商分點頁；網站若要求登入，程式不繞過會員限制。")
-    if not branch.empty:
-        st.dataframe(branch,use_container_width=True,hide_index=True)
-        broker=find_col(branch.columns,["券商"])
-        buy=find_col(branch.columns,["買張","買進"])
-        sell=find_col(branch.columns,["賣張","賣出"])
-        avg=find_col(branch.columns,["均價"])
-        if broker and buy and sell:
-            x=branch.copy(); x["_buy"]=clean_num(x[buy]);x["_sell"]=clean_num(x[sell]);x["_net"]=x["_buy"]-x["_sell"]
-            st.subheader("買超 Top 10");st.dataframe(x.sort_values("_net",ascending=False).head(10)[[broker,buy,sell,"_net"]],use_container_width=True,hide_index=True)
-            if avg:
-                x["_avg"]=clean_num(x[avg])
-                st.metric("Top 分點加權均價",f"{np.average(x['_avg'].dropna(),weights=(x.loc[x['_avg'].notna(),'_buy']+x.loc[x['_avg'].notna(),'_sell']).clip(lower=1)):,.2f}" if x["_avg"].notna().any() else "—")
+    st.subheader("券商分點資料")
+    st.caption("主要來源改為富邦 eBrokerDJ 公開頁；WantGoo 僅保留外部查閱，避免 Streamlit Cloud 403。")
+    if fubon_id:
+        if not fubon_df.empty:
+            st.success("富邦 eBrokerDJ 分點資料已取得")
+            st.dataframe(fubon_df,use_container_width=True,hide_index=True)
+        else:
+            st.warning("富邦分點讀取失敗："+str(fubon_err))
+        st.link_button("開啟富邦分點原始頁",fubon_url)
     else:
-        st.warning(branch_err or "目前未取得分點表格")
-    st.link_button("開啟此股 WantGoo 分點頁",branch_url)
+        st.info("左側可輸入富邦分點代號（例如 5660）查看該分點公開資料。股票代號自動對應完整分點排行仍在接資料端點。")
+    st.link_button("WantGoo 此股分點頁（瀏覽器登入後查看）",branch_url)
 
 with tabs[2]:
-    st.subheader("摩根／美林／高盛自動追蹤")
+    st.subheader("摩根／美林／高盛追蹤")\n    st.caption("不再以 WantGoo 伺服器爬取作為唯一來源；避免 403 被誤顯示成資料為零。")
     if not branch.empty:
         broker=find_col(branch.columns,["券商"])
         if broker:

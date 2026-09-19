@@ -28,7 +28,7 @@ def stock_data(symbol):
             obj=res.json()["chart"]["result"]
             if not obj: continue
             x=obj[0]; q=x["indicators"]["quote"][0]
-            h=pd.DataFrame({"Close":q["close"],"Volume":q["volume"]},
+            h=pd.DataFrame({"Open":q.get("open"),"High":q.get("high"),"Low":q.get("low"),"Close":q.get("close"),"Volume":q.get("volume")},
                 index=pd.to_datetime(x["timestamp"],unit="s"))
             h=h.dropna(subset=["Close"])
             if not h.empty:
@@ -271,7 +271,11 @@ with tabs[0]:
         k[date_col]=pd.to_datetime(k[date_col],errors="coerce")
         for col in ["Open","High","Low","Close","Volume"]:
             if col in k.columns: k[col]=pd.to_numeric(k[col],errors="coerce")
-        k=k.dropna(subset=[date_col,"Open","High","Low","Close"]).sort_values(date_col)
+        required=[date_col,"Open","High","Low","Close"]
+        if all(c in k.columns for c in required):
+            k=k.dropna(subset=required).sort_values(date_col)
+        else:
+            k=pd.DataFrame()
         if not k.empty:
             fig=go.Figure(data=[go.Candlestick(x=k[date_col],open=k["Open"],high=k["High"],low=k["Low"],close=k["Close"],name="日K")])
             fig.update_layout(height=560,margin=dict(l=10,r=10,t=35,b=10),xaxis_rangeslider_visible=False,hovermode="x unified",title="日 K 線")

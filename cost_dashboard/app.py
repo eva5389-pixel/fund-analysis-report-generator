@@ -279,7 +279,7 @@ branch_err="WantGoo 僅提供瀏覽器登入後查閱；Streamlit 不直接爬�
 
 costs=market_costs(h) if not h.empty else {}
 
-tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 期貨市場","🇺🇸 Pelosi","📢 重大訊息"])
+tabs=st.tabs(["🏠 總覽","🏦 分點成本","🌍 外資追蹤","📈 個股期貨","📊 大盤期貨","🇺🇸 Pelosi","📢 重大訊息"])
 with tabs[0]:
     st.subheader(f"{symbol} 自動更新總覽")
     if not h.empty:
@@ -394,7 +394,50 @@ with tabs[2]:
     st.link_button("查看資料原頁",fu)
 
 with tabs[3]:
-    st.subheader("期貨市場")
+    st.subheader("📈 個股期貨")
+    st.caption("依目前輸入的股票代號，自動從 TAIFEX 三大法人期貨資料尋找對應個股期貨。若不是個股期貨標的，會直接顯示查無資料。")
+    sd,su,se=taifex_institutional()
+    if not sd.empty:
+        scols=list(sd.columns)
+        sprod=next((c for c in scols if "商品" in str(c)),scols[1] if len(scols)>1 else None)
+        sid=next((c for c in scols if "身份" in str(c) or "身分" in str(c)),scols[2] if len(scols)>2 else None)
+        sdate=next((c for c in scols if "日期" in str(c)),scols[0] if scols else None)
+        # 商品名稱通常含標的股票名稱而非股票代號，因此先用 TWSE 名稱輔助比對。
+        stock_name=""
+        try:
+            rr=requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",headers=HEADERS,timeout=15)
+            if rr.ok:
+                dd=pd.DataFrame(rr.json())
+                cc=next((c for c in dd.columns if "Code" in str(c) or "證券代號" in str(c)),None)
+                nn=next((c for c in dd.columns if "Name" in str(c) or "證券名稱" in str(c)),None)
+                if cc and nn:
+                    hit=dd[dd[cc].astype(str).str.strip()==symbol]
+                    if not hit.empty: stock_name=str(hit.iloc[0][nn]).strip()
+        except Exception:
+            pass
+        if sprod:
+            keys=[symbol]+([stock_name] if stock_name else [])
+            mask=pd.Series(False,index=sd.index)
+            for key in keys:
+                mask=mask | sd[sprod].astype(str).str.contains(re.escape(key),case=False,na=False)
+            sf=sd[mask].copy()
+        else:
+            sf=pd.DataFrame()
+        if not sf.empty:
+            if sdate and sdate in sf.columns:
+                latest=sf[sdate].astype(str).max()
+                sf=sf[sf[sdate].astype(str)==latest]
+            st.success(f"找到 {stock_name or symbol} 的個股期貨法人資料")
+            st.dataframe(sf,use_container_width=True,hide_index=True)
+            if sid and sid in sf.columns:
+                st.caption("可由表內外資／投信／自營商的多空與未平倉資料觀察法人部位；部位用途可能包含方向交易、避險與套利，不能僅憑淨部位確認目的。")
+        else:
+            st.info(f"{stock_name or symbol}：目前在 TAIFEX 法人資料中沒有找到可確認的個股期貨商品。")
+    else:
+        st.warning("TAIFEX 個股期貨資料暫時無法取得："+str(se))
+
+with tabs[4]:
+    st.subheader("📊 大盤期貨")
     st.caption("TAIFEX 三大法人資料只能觀察法人合計部位，無法直接辨識每一口是避險或方向交易；下方採『現貨－期貨對照』做研究性推估。")
     td,tu,te=taifex_institutional()
     if not td.empty:

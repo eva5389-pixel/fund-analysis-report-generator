@@ -195,6 +195,30 @@ def option_value_split(spot,strike,premium,cp):
     return intrinsic,time_value
 
 @st.cache_data(ttl=900)
+def twse_foreign_buy_rank():
+    """TWSE 最新上市個股外資買賣超；排除 ETF/ETN，只保留四位數普通股票代號。"""
+    url="https://openapi.twse.com.tw/v1/fund/T86"
+    try:
+        r=requests.get(url,headers=HEADERS,timeout=20); r.raise_for_status()
+        d=pd.DataFrame(r.json())
+        if d.empty: return pd.DataFrame(),url,"TWSE 回傳空資料"
+        code=next((c for c in d.columns if "證券代號" in str(c)),None)
+        name=next((c for c in d.columns if "證券名稱" in str(c)),None)
+        net=next((c for c in d.columns if "外陸資買賣超股數" in str(c) and "不含外資自營商" in str(c)),None)
+        buy=next((c for c in d.columns if "外陸資買進股數" in str(c) and "不含外資自營商" in str(c)),None)
+        sell=next((c for c in d.columns if "外陸資賣出股數" in str(c) and "不含外資自營商" in str(c)),None)
+        if not all([code,name,net]): return pd.DataFrame(),url,"找不到 TWSE 外資欄位"
+        out=pd.DataFrame({"代號":d[code].astype(str).str.strip(),"名稱":d[name].astype(str).str.strip()})
+        for label,col in [("外資買進股數",buy),("外資賣出股數",sell),("外資買賣超股數",net)]:
+            out[label]=pd.to_numeric(d[col].astype(str).str.replace(",","",regex=False),errors="coerce") if col else np.nan
+        out=out[out["代號"].str.fullmatch(r"\\d{4}",na=False)].copy()
+        out["外資買超張數"]=out["外資買賣超股數"]/1000
+        out=out[out["外資買超張數"]>0].sort_values("外資買超張數",ascending=False)
+        return out,url,None
+    except Exception as e:
+        return pd.DataFrame(),url,str(e)
+
+@st.cache_data(ttl=900)
 def taifex_institutional():
     url="https://openapi.taifex.com.tw/v1/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate"
     try:
@@ -335,7 +359,22 @@ with tabs[1]:
     st.link_button("WantGoo 此股分點頁（登入後交叉查看）",branch_url)
 
 with tabs[2]:
-    st.subheader("外資券商追蹤")
+    st.subheader("🔥 最近外資買超股票")
+    st.caption("先看全市場最近一個交易日外資買進哪些上市股票，再往下看目前輸入股票的六大外資分點。買超代表資金流向，不等同外資一定會拉抬股價。")
+    fr,fr_url,fr_err=twse_foreign_buy_rank()
+    if not fr.empty:
+        topn=st.slider("顯示外資買超前幾名",5,30,15,5,key="foreign_rank_n")
+        show=fr.head(topn).copy()
+        show["外資買超張數"]=show["外資買超張數"].round(0)
+        st.dataframe(show[["代號","名稱","外資買超張數"]],use_container_width=True,hide_index=True)
+        st.markdown("#### 外資買超排行")
+        st.bar_chart(show.set_index("名稱")["外資買超張數"],horizontal=True)
+        st.caption("資料來源：臺灣證券交易所最新三大法人日報；目前先顯示上市股票單日排行。下一階段可累積每日資料後增加 3／5／10／20 日連續買超與價格轉強篩選。")
+    else:
+        st.warning("TWSE 外資買超排行暫時無法取得："+str(fr_err))
+
+    st.divider()
+    st.subheader("目前股票：六大外資券商追蹤")
     st.caption("自動追蹤摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球。")
     foreign_period=st.segmented_control("外資期間",[1,5],default=5,format_func=lambda x:f"{x}日",key="foreign_period")
     ft,fu,fe=fubon_stock_brokers(symbol,foreign_period)

@@ -264,7 +264,19 @@ with tabs[0]:
         c1.metric("最新收盤",f"{current:,.2f}",f"{current-prev:,.2f}")
         c2.metric("資料日期",str(h.index[-1].date()))
         c3.metric("Yahoo 代號",ticker)
-        st.line_chart(h["Close"])
+        # Streamlit 對 DatetimeIndex/Series 偶爾會出現座標有刻度但線條未繪出的情況；
+        # 明確整理成日期 + 數值欄位再畫圖。
+        price_chart=h.reset_index().copy()
+        date_col=price_chart.columns[0]
+        price_chart[date_col]=pd.to_datetime(price_chart[date_col],errors="coerce")
+        price_chart["收盤價"]=pd.to_numeric(price_chart["Close"],errors="coerce")
+        price_chart=price_chart[[date_col,"收盤價"]].dropna().sort_values(date_col)
+        if len(price_chart)>=2:
+            st.line_chart(price_chart,x=date_col,y="收盤價",use_container_width=True)
+        elif len(price_chart)==1:
+            st.info(f"目前只有 1 筆有效行情：{price_chart['收盤價'].iloc[0]:,.2f}，至少需要 2 筆才能畫走勢線。")
+        else:
+            st.warning("目前沒有可繪製的有效收盤價資料。")
         st.markdown("### 六大外資分點進出成本")
         st.caption("成本改用摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球的分點進出資料；不再把市場成交量加權成本當成外資成本。")
         foreign_cost_rows=[]

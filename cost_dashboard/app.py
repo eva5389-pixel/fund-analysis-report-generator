@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 import re
+import plotly.graph_objects as go
 from io import StringIO
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -264,19 +265,20 @@ with tabs[0]:
         c1.metric("最新收盤",f"{current:,.2f}",f"{current-prev:,.2f}")
         c2.metric("資料日期",str(h.index[-1].date()))
         c3.metric("Yahoo 代號",ticker)
-        # Streamlit 對 DatetimeIndex/Series 偶爾會出現座標有刻度但線條未繪出的情況；
-        # 明確整理成日期 + 數值欄位再畫圖。
-        price_chart=h.reset_index().copy()
-        date_col=price_chart.columns[0]
-        price_chart[date_col]=pd.to_datetime(price_chart[date_col],errors="coerce")
-        price_chart["收盤價"]=pd.to_numeric(price_chart["Close"],errors="coerce")
-        price_chart=price_chart[[date_col,"收盤價"]].dropna().sort_values(date_col)
-        if len(price_chart)>=2:
-            st.line_chart(price_chart,x=date_col,y="收盤價",use_container_width=True)
-        elif len(price_chart)==1:
-            st.info(f"目前只有 1 筆有效行情：{price_chart['收盤價'].iloc[0]:,.2f}，至少需要 2 筆才能畫走勢線。")
+        # 日 K 線：OHLC + 成交量；使用 Plotly 以支援滑鼠縮放與十字游標。
+        k=h.reset_index().copy()
+        date_col=k.columns[0]
+        k[date_col]=pd.to_datetime(k[date_col],errors="coerce")
+        for col in ["Open","High","Low","Close","Volume"]:
+            if col in k.columns: k[col]=pd.to_numeric(k[col],errors="coerce")
+        k=k.dropna(subset=[date_col,"Open","High","Low","Close"]).sort_values(date_col)
+        if not k.empty:
+            fig=go.Figure(data=[go.Candlestick(x=k[date_col],open=k["Open"],high=k["High"],low=k["Low"],close=k["Close"],name="日K")])
+            fig.update_layout(height=560,margin=dict(l=10,r=10,t=35,b=10),xaxis_rangeslider_visible=False,hovermode="x unified",title="日 K 線")
+            fig.update_xaxes(rangebreaks=[dict(bounds=["sat","mon"])])
+            st.plotly_chart(fig,use_container_width=True,config={"displaylogo":False,"scrollZoom":True})
         else:
-            st.warning("目前沒有可繪製的有效收盤價資料。")
+            st.warning("目前沒有足夠的 OHLC 行情資料可以繪製 K 線。")
         st.markdown("### 六大外資分點進出成本")
         st.caption("成本改用摩根士丹利、摩根大通、美林、高盛、瑞銀、花旗環球的分點進出資料；不再把市場成交量加權成本當成外資成本。")
         foreign_cost_rows=[]

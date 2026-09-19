@@ -301,13 +301,11 @@ with tabs[0]:
                 net=buy-sell if pd.notna(buy) and pd.notna(sell) else np.nan
                 mb=re.search(r"平均買超成本\s*([\d.]+)",txt)
                 ranked_cost=float(mb.group(1)) if mb else np.nan
-                est_df,est_cost=foreign_broker_cost_estimate(h,bdf,n)
-                gap=(current/est_cost-1)*100 if pd.notna(est_cost) and est_cost else np.nan
-                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"六大外資估算買進成本":est_cost,"現價距估算成本%":gap,"公開排行平均買超成本":ranked_cost})
+                foreign_cost_rows.append({"期間":f"{n}日","六大外資買進張數":buy,"六大外資賣出張數":sell,"六大外資淨買賣":net,"六大外資個別成本":"資料不足","公開排行平均買超成本":ranked_cost})
         if foreign_cost_rows:
             fc=pd.DataFrame(foreign_cost_rows)
             st.dataframe(fc,use_container_width=True,hide_index=True)
-            st.caption("⚠️ 已修正期間資料：公開來源目前只保留可可靠讀取的 1日／5日，避免 20日／60日網址回傳單日頁而造成假成本。成本仍是模型估算，不是券商真實庫存成本。")
+            st.caption("⚠️ 六大外資的買進／賣出／淨買賣可由分點排行取得；但個別分點缺少成交金額或逐筆成交價，因此個別成本顯示「資料不足」，不再用市場價格模型代替。")
             st.markdown("**真正的外資成本公式：** `外資成本 = 外資分點累計買進金額 ÷ 外資分點累計買進股數`。只有張數時，必須再取得逐日分點成交價或成交金額。")
     else: st.error("行情取得失敗："+str(price_err))
 
@@ -343,15 +341,9 @@ with tabs[2]:
     ft,fu,fe=fubon_stock_brokers(symbol,foreign_period)
     if ft:
         fd=parse_fubon_brokers(ft)
-        fd,foreign_est=foreign_broker_cost_estimate(h,fd,foreign_period)
-        fd["現價距分點估算成本%"]=np.where(fd["分點估算買進成本"].notna(),(current/fd["分點估算買進成本"]-1)*100,np.nan)
+        fd["分點成本"]="資料不足"
         st.dataframe(fd,use_container_width=True,hide_index=True)
-        if pd.notna(foreign_est): st.metric("六大外資估算成本",f"{foreign_est:,.2f}",f"現價 {(current/foreign_est-1)*100:+.2f}%")
-        cost_chart=fd.dropna(subset=["分點估算買進成本"]).set_index("主要券商")
-        if not cost_chart.empty:
-            st.markdown("#### 六大外資分點估算成本")
-            st.bar_chart(cost_chart["分點估算買進成本"],horizontal=True)
-            st.caption("各分點成本是模型估算：以區間成交重心為基準，再依該分點買賣壓力與期間日內波幅微調；不是券商公布的真實庫存成本。")
+        st.info("六大外資個別成本暫不計算：目前可驗證的公開資料有各分點買進／賣出張數，但沒有足以計算個別平均成交成本的成交金額或逐筆成交價。")
         fchart=fd.dropna(subset=["淨買超"]).set_index("主要券商")
         if not fchart.empty:
             st.bar_chart(fchart["淨買超"],horizontal=True)

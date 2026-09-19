@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import requests
 import re
-import plotly.graph_objects as go
 from io import StringIO
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -265,7 +264,7 @@ with tabs[0]:
         c1.metric("最新收盤",f"{current:,.2f}",f"{current-prev:,.2f}")
         c2.metric("資料日期",str(h.index[-1].date()))
         c3.metric("Yahoo 代號",ticker)
-        # 日 K 線：OHLC + 成交量；使用 Plotly 以支援滑鼠縮放與十字游標。
+        # 日 K 線：使用 Altair（Streamlit 內建支援），避免 Plotly 前端動態模組載入失敗。
         k=h.reset_index().copy()
         date_col=k.columns[0]
         k[date_col]=pd.to_datetime(k[date_col],errors="coerce")
@@ -277,10 +276,16 @@ with tabs[0]:
         else:
             k=pd.DataFrame()
         if not k.empty:
-            fig=go.Figure(data=[go.Candlestick(x=k[date_col],open=k["Open"],high=k["High"],low=k["Low"],close=k["Close"],name="日K")])
-            fig.update_layout(height=560,margin=dict(l=10,r=10,t=35,b=10),xaxis_rangeslider_visible=False,hovermode="x unified",title="日 K 線")
-            fig.update_xaxes(rangebreaks=[dict(bounds=["sat","mon"])])
-            st.plotly_chart(fig,use_container_width=True,config={"displaylogo":False,"scrollZoom":True})
+            import altair as alt
+            base=alt.Chart(k).encode(x=alt.X(f"{date_col}:T",title=None,axis=alt.Axis(format="%m/%d")))
+            rule=base.mark_rule().encode(y=alt.Y("Low:Q",title="價格"),y2="High:Q")
+            body=base.mark_bar(size=6).encode(
+                y=alt.Y("Open:Q",title="價格"),y2="Close:Q",
+                color=alt.condition("datum.Close >= datum.Open",alt.value("#ef5350"),alt.value("#26a69a")),
+                tooltip=[alt.Tooltip(f"{date_col}:T",title="日期"),alt.Tooltip("Open:Q",title="開"),alt.Tooltip("High:Q",title="高"),alt.Tooltip("Low:Q",title="低"),alt.Tooltip("Close:Q",title="收"),alt.Tooltip("Volume:Q",title="量",format=",.0f")]
+            )
+            chart=(rule+body).properties(height=520,title="日 K 線").interactive()
+            st.altair_chart(chart,use_container_width=True)
         else:
             st.warning("目前沒有足夠的 OHLC 行情資料可以繪製 K 線。")
         st.markdown("### 六大外資分點進出成本")

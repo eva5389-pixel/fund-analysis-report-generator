@@ -15,7 +15,7 @@ from fund_analysis import (
 from report_builder import build_report
 
 
-MAPPING_CACHE_VERSION = "2026-09-15-nomura-japan-themes"
+MAPPING_CACHE_VERSION = "2026-09-21-moneydj-holding-changes"
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")

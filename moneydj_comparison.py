@@ -61,10 +61,16 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
     for table in profile_tables:
         for row in table.itertuples(index=False,name=None):
             cells=[str(v).strip() for v in row]
-            for label in ['基金名稱','計價幣別']:
+            for label in ['基金名稱','計價幣別','基金規模']:
                 if label in cells and cells.index(label)+1<len(cells): profile[label]=cells[cells.index(label)+1]
     name=profile.get('基金名稱',f'MoneyDJ基金 {fund_id}'); currency_text=profile.get('計價幣別','')
     currency=CURRENCY_NAMES.get(currency_text,currency_text if currency_text in CURRENCY_NAMES.values() else None)
+    fund_size=np.nan; fund_size_date=pd.NaT
+    size_text=profile.get('基金規模','')
+    size_match=re.search(r'([\d,.]+)\s*億元',size_text)
+    size_date_match=re.search(r'(\d{4}/\d{1,2}/\d{1,2})',size_text)
+    if size_match: fund_size=float(size_match.group(1).replace(',',''))
+    if size_date_match: fund_size_date=pd.to_datetime(size_date_match.group(1),errors='coerce')
     anchor=None
     for table in profile_tables:
         if '淨值日期' in table:
@@ -87,7 +93,7 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
             month,day=map(int,text.split('/')); candidate=pd.Timestamp(anchor.year,month,day)
             return candidate if candidate<=anchor else pd.Timestamp(anchor.year-1,month,day)
         return pd.to_datetime(text,errors='coerce')
-    nav=pd.DataFrame({'date':raw['日期'].map(parsed_date),'nav':pd.to_numeric(raw['淨值'],errors='coerce'),'fund':name,'currency':currency})
+    nav=pd.DataFrame({'date':raw['日期'].map(parsed_date),'nav':pd.to_numeric(raw['淨值'],errors='coerce'),'fund':name,'currency':currency,'fund_size':fund_size,'fund_size_date':fund_size_date})
     nav=nav.dropna(subset=['date','nav']).drop_duplicates(['fund','date']).sort_values('date')
     if len(nav)<2: raise ValueError('目前可用淨值不足兩筆。')
     perf=_moneydj_performance(performance_tables)
@@ -126,6 +132,7 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
         quote_count=int(holdings.loc[holdings.date.eq(holding_date),'period_return'].notna().sum())
         warnings.append(f'已取得 {quote_count} 檔持股在前後兩期揭露日之市場報酬，用於估計獲利／虧損貢獻。')
     scraped=[k for k in ('moneydj_1m','moneydj_3m','moneydj_6m') if np.isfinite(perf[k])]
+    if np.isfinite(fund_size): warnings.append(f'{name}基金規模：{fund_size:,.2f} 億元（資料日 {fund_size_date:%Y-%m-%d}）。')
     warnings += [f'{name}：計價幣別 {currency or "未確認"}，淨值 {len(nav)} 筆（{nav.date.min():%Y-%m-%d} 至 {nav.date.max():%Y-%m-%d}）。',
                  ('MoneyDJ 基金績效頁已讀取單筆申購 1M／3M／6M 累積報酬。' if len(scraped)==3 else 'MoneyDJ 短期績效若有缺值，系統將以已載入淨值自行計算補足。'),
                  '持股題材為規則對照分類，非基金公司官方題材標籤；未辨識者保留待確認。']

@@ -36,13 +36,13 @@ def build_report(fund: str, period: str, summary: dict, changes: pd.DataFrame,
     _add_table(doc, metrics, ["項目", "數值"], 20)
 
     doc.add_heading("區間持股變化", level=1)
-    _add_table(doc, changes, ["ticker", "name", "動作", "期初權重", "期末權重", "權重變化"], 20)
+    _add_table(doc, changes, ["ticker", "name", "theme", "動作", "期初權重", "期末權重", "權重變化"], 20)
     doc.add_heading("投資題材", level=1)
     _add_table(doc, themes, ["theme", "期初權重", "期末權重", "權重變化"], 15)
 
     doc.add_heading("獲利貢獻", level=1)
     winners = changes.sort_values("估計貢獻", ascending=False)
-    _add_table(doc, winners, ["ticker", "name", "區間報酬", "估計貢獻"], 10)
+    _add_table(doc, winners, ["ticker", "name", "theme", "區間報酬", "估計貢獻"], 10)
     doc.add_heading("虧損拖累", level=1)
     _add_table(doc, winners.sort_values("估計貢獻"), ["ticker", "name", "區間報酬", "估計貢獻"], 10)
 

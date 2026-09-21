@@ -287,44 +287,64 @@ def _holding_identity(name: str) -> tuple[str, str, str]:
 
 
 def _market_returns(tickers: list[str], start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict[str, float]:
-    """Return actual adjusted-close changes; a quote failure never breaks the report."""
-    unique = list(dict.fromkeys(t for t in tickers if t))
+    """Return adjusted-close changes with a direct Yahoo chart fallback."""
+    unique = list(dict.fromkeys(str(t).strip() for t in tickers if str(t).strip()))
     if not unique:
         return {}
+    start_date = pd.Timestamp(start_date).tz_localize(None).normalize()
+    end_date = pd.Timestamp(end_date).tz_localize(None).normalize()
+    results = {}
     try:
         prices = yf.download(
             unique,
             start=(start_date - pd.Timedelta(days=10)).date(),
-            end=(end_date + pd.Timedelta(days=3)).date(),
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-            timeout=12,
+            end=(end_date + pd.Timedelta(days=5)).date(),
+            auto_adjust=True, progress=False, threads=False, timeout=15,
         )
-        if prices.empty:
-            return {}
-        close = prices["Close"] if "Close" in prices else prices
-        if isinstance(close, pd.Series):
-            close = close.to_frame(unique[0])
-        results = {}
-        for ticker in unique:
-            if ticker not in close.columns:
-                continue
-            series = pd.to_numeric(close[ticker], errors="coerce").dropna().sort_index()
-            before_start = series[series.index <= start_date]
-            before_end = series[series.index <= end_date]
-            if before_start.empty:
-                after_start = series[series.index >= start_date]
-                start_value = after_start.iloc[0] if not after_start.empty else np.nan
-            else:
-                start_value = before_start.iloc[-1]
-            end_value = before_end.iloc[-1] if not before_end.empty else np.nan
-            if np.isfinite(start_value) and np.isfinite(end_value) and start_value != 0:
-                results[ticker] = (end_value / start_value - 1) * 100
-        return results
+        if not prices.empty:
+            close = prices["Close"] if "Close" in prices else prices
+            if isinstance(close, pd.Series):
+                close = close.to_frame(unique[0])
+            close.index = pd.to_datetime(close.index).tz_localize(None)
+            for ticker in unique:
+                if ticker not in close.columns:
+                    continue
+                series = pd.to_numeric(close[ticker], errors="coerce").dropna().sort_index()
+                before_start = series[series.index <= start_date]
+                before_end = series[series.index <= end_date]
+                if not before_start.empty and not before_end.empty and before_start.iloc[-1] != 0:
+                    results[ticker] = (before_end.iloc[-1] / before_start.iloc[-1] - 1) * 100
     except Exception:
-        return {}
+        pass
 
+    # Streamlit Cloud occasionally blocks yfinance's batch/cookie request.
+    # The public chart endpoint does not need that session and is retried ticker by ticker.
+    period1 = int((start_date - pd.Timedelta(days=10)).timestamp())
+    period2 = int((end_date + pd.Timedelta(days=5)).timestamp())
+    for ticker in (t for t in unique if t not in results):
+        for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
+            try:
+                response = requests.get(
+                    f"https://{host}/v8/finance/chart/{ticker}",
+                    params={"period1": period1, "period2": period2, "interval": "1d", "events": "history"},
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=15,
+                )
+                response.raise_for_status()
+                item = response.json()["chart"]["result"][0]
+                timestamps = item.get("timestamp") or []
+                indicators = item.get("indicators", {})
+                adjusted = (indicators.get("adjclose") or [{}])[0].get("adjclose")
+                values = adjusted or (indicators.get("quote") or [{}])[0].get("close") or []
+                series = pd.Series(values, index=pd.to_datetime(timestamps, unit="s", utc=True).tz_localize(None))
+                series = pd.to_numeric(series, errors="coerce").dropna().sort_index()
+                before_start = series[series.index <= start_date + pd.Timedelta(days=1)]
+                before_end = series[series.index <= end_date + pd.Timedelta(days=1)]
+                if not before_start.empty and not before_end.empty and before_start.iloc[-1] != 0:
+                    results[ticker] = (before_end.iloc[-1] / before_start.iloc[-1] - 1) * 100
+                    break
+            except Exception:
+                continue
+    return results
 
 def load_moneydj_fund(url: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Convert a MoneyDJ wrapper URL to its public NAV and holdings pages."""

@@ -15,7 +15,7 @@ from fund_analysis import (
 from report_builder import build_report
 
 
-MAPPING_CACHE_VERSION = "2026-09-21-holding-market-returns"
+MAPPING_CACHE_VERSION = "2026-09-21-yahoo-chart-fallback"
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")

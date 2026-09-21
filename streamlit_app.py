@@ -15,11 +15,24 @@ from fund_analysis import (
 from report_builder import build_report
 
 
-MAPPING_CACHE_VERSION = "2026-09-21-fund-size-page-text"
+MAPPING_CACHE_VERSION = "2026-09-21-financial-insurance-allocation"
+
+
+FUND_INDUSTRY_SUPPLEMENTS = {
+    "富邦台灣心基金": pd.DataFrame([
+        {
+            "配置類型": "產業配置",
+            "產業／題材": "金融保險",
+            "權重": 17.04,
+            "資料日期": "2026-08-31",
+            "個股明細": "未揭露",
+        }
+    ])
+}
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
-st.caption("版本：2026-09-21｜基金規模修正＋HTML報告預覽")
+st.caption("版本：2026-09-21｜基金規模修正＋產業配置補充＋HTML報告預覽")
 view = st.segmented_control("選擇分析功能", ["績效題材與匯率比較", "原有基金深度分析"], default="績效題材與匯率比較", key="analysis_view")
 if view == "績效題材與匯率比較":
     from comparison_ui import render_comparison
@@ -154,6 +167,7 @@ changes = holding_changes(holdings_df, fund, start_date, end_date)
 themes = exposure_table(changes, "theme")
 sectors = exposure_table(changes, "sector")
 peers = peer_metrics(nav_df, start_date, end_date, risk_free)
+industry_supplement = FUND_INDUSTRY_SUPPLEMENTS.get(fund, pd.DataFrame()).copy()
 latest_size = fund_nav["fund_size"].dropna().iloc[-1] if "fund_size" in fund_nav and fund_nav["fund_size"].notna().any() else np.nan
 latest_size_date = (
     pd.to_datetime(fund_nav["fund_size_date"], errors="coerce").dropna().iloc[-1]
@@ -206,6 +220,14 @@ with tabs[2]:
     st.dataframe(themes, hide_index=True)
     st.subheader("產業配置變化")
     st.dataframe(sectors, hide_index=True)
+    if not industry_supplement.empty:
+        st.subheader("基金產業配置補充")
+        st.dataframe(
+            industry_supplement,
+            hide_index=True,
+            column_config={"權重": st.column_config.NumberColumn(format="%.2f%%")},
+        )
+        st.caption("此為基金整體產業配置，不是單一個股；個股明細未揭露，因此不納入持股變化與獲利／虧損歸因。")
 
 with tabs[3]:
     valid = changes.dropna(subset=["估計貢獻"])
@@ -286,5 +308,5 @@ with tabs[5]:
         "基金規模": "—" if pd.isna(latest_size) else f"{latest_size:,.1f} 億",
     }}
     st.write(conclusion)
-    report = build_report(fund, f"{start_date} 至 {end_date}", summary, changes, themes, peers, notes, source)
+    report = build_report(fund, f"{start_date} 至 {end_date}", summary, changes, themes, peers, notes, source, industry_supplement)
     st.download_button("下載 Word 分析報告", report, file_name=f"{fund}_基金分析報告.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", icon=":material/download:", type="primary")

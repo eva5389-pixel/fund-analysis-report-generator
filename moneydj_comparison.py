@@ -2,7 +2,7 @@
 import re
 import numpy as np
 import pandas as pd
-from fund_analysis import moneydj_fund_id, moneydj_fund_route, read_url_tables, _holding_identity, _numeric_percent
+from fund_analysis import moneydj_fund_id, moneydj_fund_route, read_url_tables, _holding_identity, _numeric_percent, _market_returns
 
 CURRENCY_NAMES={'美元':'USD','美金':'USD','新台幣':'TWD','台幣':'TWD','日圓':'JPY','日元':'JPY','日幣':'JPY','歐元':'EUR','英鎊':'GBP','澳幣':'AUD','澳元':'AUD','加幣':'CAD','港幣':'HKD','人民幣':'CNY','南非幣':'ZAR','瑞士法郎':'CHF','新加坡幣':'SGD','紐西蘭幣':'NZD'}
 IDENTITIES={'sk hynix':('000660.KS','記憶體','DRAM與HBM'),'nvidia':('NVDA','半導體設計','AI運算與資料中心'),'broadcom':('AVGO','半導體設計','AI網路與客製化晶片'),'samsung electronics':('005930.KS','半導體','記憶體與電子裝置'),'lam research':('LRCX','半導體設備','半導體製程設備'),'apple inc':('AAPL','消費電子','行動裝置與服務'),'taiwan semiconductor':('TSM','晶圓代工','AI先進製程'),'intel':('INTC','半導體','處理器與晶圓製造'),'alphabet':('GOOGL','網路服務','雲端與網路服務')}
@@ -119,6 +119,12 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
             warnings.append('持股變化依MoneyDJ增減欄還原前一期權重；增減為N/A者列為新進。')
     else: warnings.append('持股暫時無法取得；仍可比較淨值績效。')
     holdings=pd.DataFrame(rows,columns=columns).drop_duplicates(['date','fund','name'])
+    if not holdings.empty and holding_date is not None:
+        tickers=holdings['ticker'].dropna().astype(str).unique().tolist()
+        market_returns=_market_returns(tickers,pd.Timestamp(prior_date),pd.Timestamp(holding_date))
+        holdings['period_return']=holdings['ticker'].map(market_returns)
+        quote_count=int(holdings.loc[holdings.date.eq(holding_date),'period_return'].notna().sum())
+        warnings.append(f'已取得 {quote_count} 檔持股在前後兩期揭露日之市場報酬，用於估計獲利／虧損貢獻。')
     scraped=[k for k in ('moneydj_1m','moneydj_3m','moneydj_6m') if np.isfinite(perf[k])]
     warnings += [f'{name}：計價幣別 {currency or "未確認"}，淨值 {len(nav)} 筆（{nav.date.min():%Y-%m-%d} 至 {nav.date.max():%Y-%m-%d}）。',
                  ('MoneyDJ 基金績效頁已讀取單筆申購 1M／3M／6M 累積報酬。' if len(scraped)==3 else 'MoneyDJ 短期績效若有缺值，系統將以已載入淨值自行計算補足。'),

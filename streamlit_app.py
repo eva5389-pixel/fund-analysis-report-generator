@@ -19,6 +19,7 @@ MAPPING_CACHE_VERSION = "2026-09-21-yahoo-chart-fallback"
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
+st.caption("版本：2026-09-21｜基金規模修正＋HTML報告預覽")
 view = st.segmented_control("選擇分析功能", ["績效題材與匯率比較", "原有基金深度分析"], default="績效題材與匯率比較", key="analysis_view")
 if view == "績效題材與匯率比較":
     from comparison_ui import render_comparison

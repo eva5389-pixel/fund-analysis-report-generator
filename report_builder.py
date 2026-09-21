@@ -21,7 +21,8 @@ def _add_table(doc: Document, df: pd.DataFrame, columns: list[str], limit: int =
 
 
 def build_report(fund: str, period: str, summary: dict, changes: pd.DataFrame,
-                 themes: pd.DataFrame, peers: pd.DataFrame, notes: str, source: str) -> bytes:
+                 themes: pd.DataFrame, peers: pd.DataFrame, notes: str, source: str,
+                 industry_supplement: pd.DataFrame | None = None) -> bytes:
     doc = Document()
     title = doc.add_heading("基金分析報告", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -39,6 +40,10 @@ def build_report(fund: str, period: str, summary: dict, changes: pd.DataFrame,
     _add_table(doc, changes, ["ticker", "name", "theme", "動作", "期初權重", "期末權重", "權重變化"], 20)
     doc.add_heading("投資題材", level=1)
     _add_table(doc, themes, ["theme", "期初權重", "期末權重", "權重變化"], 15)
+    if industry_supplement is not None and not industry_supplement.empty:
+        doc.add_heading("基金產業配置補充", level=1)
+        _add_table(doc, industry_supplement, ["配置類型", "產業／題材", "權重", "資料日期", "個股明細"], 15)
+        doc.add_paragraph("此為基金整體產業配置，不是單一個股；個股明細未揭露，因此不納入持股變化與獲利／虧損歸因。")
 
     doc.add_heading("獲利貢獻", level=1)
     winners = changes.sort_values("估計貢獻", ascending=False)

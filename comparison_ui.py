@@ -143,7 +143,7 @@ def render_comparison():
             elif len(basket)>=10: st.warning('最多加入10檔基金，請先移除一檔。')
             else:
                 try:
-                    with st.spinner('正在讀取這檔基金…'): n,h,d=load_comparison_url(url.strip(),'2026-09-21-fund-size'); n=read_nav(n)
+                    with st.spinner('正在讀取這檔基金…'): n,h,d=load_comparison_url(url.strip(),'2026-09-21-fund-size-page-text'); n=read_nav(n)
                     basket[fund_id]=(n,h,[url.strip()]+d); st.session_state['cmp_selected']=[name for entry in basket.values() for name in entry[0].fund.unique()]
                     st.session_state['cmp_add_notice']='已加入：'+'、'.join(n.fund.unique()); st.session_state['cmp_clear_url']=True; st.rerun()
                 except Exception as exc: st.error(f'這檔基金加入失敗：{exc}。原本的比較清單已保留，可修正網址後重試。')

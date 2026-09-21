@@ -67,10 +67,22 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
     currency=CURRENCY_NAMES.get(currency_text,currency_text if currency_text in CURRENCY_NAMES.values() else None)
     fund_size=np.nan; fund_size_date=pd.NaT
     size_text=profile.get('基金規模','')
-    size_match=re.search(r'([\d,.]+)\s*億元',size_text)
-    size_date_match=re.search(r'(\d{4}/\d{1,2}/\d{1,2})',size_text)
-    if size_match: fund_size=float(size_match.group(1).replace(',',''))
-    if size_date_match: fund_size_date=pd.to_datetime(size_date_match.group(1),errors='coerce')
+    profile_text='\n'.join(str(table.attrs.get('source_text','')) for table in profile_tables)
+    # MoneyDJ pages do not always expose 基金規模 in the same parsed table cell.
+    # Prefer the value immediately following 基金規模 in the full page text,
+    # so 成立時規模 is never mistaken for the current fund size.
+    full_size_match=re.search(
+        r'基金規模\s*[:：]?\s*([\d,.]+)\s*億元(?:\([^)]*\))?\s*\((\d{4}/\d{1,2}/\d{1,2})\)',
+        profile_text,
+    )
+    if full_size_match:
+        fund_size=float(full_size_match.group(1).replace(',',''))
+        fund_size_date=pd.to_datetime(full_size_match.group(2),errors='coerce')
+    else:
+        size_match=re.search(r'([\d,.]+)\s*億元',size_text)
+        size_date_match=re.search(r'(\d{4}/\d{1,2}/\d{1,2})',size_text)
+        if size_match: fund_size=float(size_match.group(1).replace(',',''))
+        if size_date_match: fund_size_date=pd.to_datetime(size_date_match.group(1),errors='coerce')
     anchor=None
     for table in profile_tables:
         if '淨值日期' in table:

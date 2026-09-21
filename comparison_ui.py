@@ -94,6 +94,22 @@ def _fmt_metric(value, suffix=''):
 def render_comparison():
     st.header('基金績效題材與匯率比較')
     st.write('同時比較原幣、台幣、美元及日幣報酬，並把 Sharpe、Beta、1M／3M／6M 績效納入選定基金的最終評估。')
+    with st.expander('開啟已下載的網頁版分析報告（HTML）'):
+        st.caption('瀏覽器基於安全限制不能直接讀取 file:///Users/...；請選擇 Mac「下載項目」中的 HTML 檔案。')
+        report_file=st.file_uploader('上傳網頁版分析報告',type=['html','htm'],key='cmp_html_report')
+        if report_file is not None:
+            raw=report_file.getvalue()
+            report_text=''
+            for encoding in ('utf-8-sig','utf-8','big5'):
+                try:
+                    report_text=raw.decode(encoding);break
+                except UnicodeDecodeError:
+                    continue
+            if report_text:
+                st.success(f'已開啟：{report_file.name}')
+                st.components.v1.html(report_text,height=800,scrolling=True)
+            else:
+                st.error('無法辨識這份HTML檔案的文字編碼。')
     source_mode = st.segmented_control('比較資料來源', ['MoneyDJ 網址','檔案上傳','示範資料'], default='MoneyDJ 網址', key='cmp_source')
     sample = source_mode == '示範資料'
     nav_raw = holdings = pd.DataFrame(); descriptions=[]

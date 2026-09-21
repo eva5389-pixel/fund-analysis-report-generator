@@ -99,12 +99,24 @@ def parse_pages(profile_tables, nav_tables, holding_tables, fund_id, performance
             holding_date=pd.Timestamp(int(month[1]),int(month[2]),1)+pd.offsets.MonthEnd(0); warnings.append(f'持股按頁面揭露月份 {month[1]}年{month[2]}月歸於月底，並非淨值日期。')
         else: holding_date=None; warnings.append('持股資料未找到明確月份，未納入題材比較；可另行上傳有日期的持股檔。')
         if holding_date is not None:
+            prior_date=holding_date-pd.offsets.MonthEnd(1)
             for table in holding_tables:
-                names=[c for c in table if '持股名稱' in str(c) or '股票名稱' in str(c)]; weights=[c for c in table if '比例' in str(c)]
-                for nc,wc in zip(names,weights):
-                    for holding,weight in zip(table[nc],_numeric_percent(table[wc])):
+                names=[c for c in table if '持股名稱' in str(c) or '股票名稱' in str(c)]
+                weights=[c for c in table if '比例' in str(c)]
+                changes=[c for c in table if '增減' in str(c)]
+                for idx,(nc,wc) in enumerate(zip(names,weights)):
+                    parsed_weights=_numeric_percent(table[wc])
+                    parsed_changes=_numeric_percent(table[changes[idx]]) if idx<len(changes) else pd.Series(np.nan,index=table.index)
+                    for holding,weight,change in zip(table[nc],parsed_weights,parsed_changes):
                         if pd.isna(weight) or pd.isna(holding): continue
-                        identity=holding_identity(holding); rows.append(dict(date=holding_date,fund=name,name=str(holding),ticker=identity[0],sector=identity[1],theme=identity[2],weight=float(weight)))
+                        identity=holding_identity(holding)
+                        base=dict(fund=name,name=str(holding),ticker=identity[0],sector=identity[1],theme=identity[2])
+                        rows.append(dict(date=holding_date,weight=float(weight),**base))
+                        # MoneyDJ's 增減 is the percentage-point change from the prior disclosed month.
+                        # N/A on a current top holding is treated as a newly disclosed holding.
+                        prior_weight=0.0 if pd.isna(change) else max(0.0,float(weight)-float(change))
+                        rows.append(dict(date=prior_date,weight=prior_weight,**base))
+            warnings.append('持股變化依MoneyDJ增減欄還原前一期權重；增減為N/A者列為新進。')
     else: warnings.append('持股暫時無法取得；仍可比較淨值績效。')
     holdings=pd.DataFrame(rows,columns=columns).drop_duplicates(['date','fund','name'])
     scraped=[k for k in ('moneydj_1m','moneydj_3m','moneydj_6m') if np.isfinite(perf[k])]

@@ -32,7 +32,7 @@ FUND_INDUSTRY_SUPPLEMENTS = {
 
 
 st.set_page_config(page_title="基金分析報告產生器", page_icon=":material/analytics:", layout="wide")
-st.caption("版本：2026-09-21｜基金規模修正＋產業配置補充＋HTML報告預覽")
+st.caption("版本：2026-09-22｜虧損歸因與資料期間修正")
 view = st.segmented_control("選擇分析功能", ["績效題材與匯率比較", "原有基金深度分析"], default="績效題材與匯率比較", key="analysis_view")
 if view == "績效題材與匯率比較":
     from comparison_ui import render_comparison
@@ -164,6 +164,8 @@ if start_date >= end_date:
 fund_nav = fund_nav_all[(fund_nav_all["date"] >= pd.Timestamp(start_date)) & (fund_nav_all["date"] <= pd.Timestamp(end_date))].sort_values("date")
 metrics = calculate_risk_metrics(fund_nav["nav"], risk_free)
 changes = holding_changes(holdings_df, fund, start_date, end_date)
+holding_dates = holdings_df.loc[holdings_df["fund"].eq(fund), "date"].dropna().sort_values().unique()
+holding_period = f"{pd.Timestamp(holding_dates[0]):%Y-%m-%d} 至 {pd.Timestamp(holding_dates[-1]):%Y-%m-%d}" if len(holding_dates) else "未提供"
 themes = exposure_table(changes, "theme")
 sectors = exposure_table(changes, "sector")
 peers = peer_metrics(nav_df, start_date, end_date, risk_free)
@@ -230,6 +232,7 @@ with tabs[2]:
         st.caption("此為基金整體產業配置，不是單一個股；個股明細未揭露，因此不納入持股變化與獲利／虧損歸因。")
 
 with tabs[3]:
+    st.caption(f"淨值分析期間：{start_date} 至 {end_date}；持股市場報酬來源期間：{holding_period}。兩者可能不同，個股估計貢獻無法完整解釋淨值漲跌。")
     valid = changes.dropna(subset=["估計貢獻"])
     if valid.empty:
         st.info("目前未取得個股期初與期末市場價格，因此暫時無法計算獲利／虧損歸因；持股權重變化仍可正常查看。")
@@ -250,7 +253,10 @@ with tabs[3]:
             })
         with c2:
             st.markdown("#### 虧損產業")
-            st.dataframe(loss_industry, hide_index=True, column_config={
+            if loss_industry.empty:
+                st.info("可計算的揭露持股中，沒有負估計貢獻；不代表基金沒有其他虧損來源。")
+            else:
+                st.dataframe(loss_industry, hide_index=True, column_config={
                 "期末權重": st.column_config.NumberColumn(format="%.2f%%"),
                 "估計貢獻": st.column_config.NumberColumn("估計貢獻（百分點）", format="%+.2f"),
             })
@@ -269,8 +275,15 @@ with tabs[3]:
             st.dataframe(valid[valid["估計貢獻"] > 0].sort_values("估計貢獻", ascending=False)[holding_columns], hide_index=True, column_config=holding_config)
         with c4:
             st.markdown("#### 虧損持股")
-            st.dataframe(valid[valid["估計貢獻"] < 0].sort_values("估計貢獻")[holding_columns], hide_index=True, column_config=holding_config)
-    st.caption("估計貢獻＝期初與期末平均權重 × 個股區間報酬，未納入日內交易、現金及衍生工具。")
+            losses = valid[valid["估計貢獻"] < 0].sort_values("估計貢獻").copy()
+            if losses.empty:
+                st.info("可計算的揭露持股沒有負貢獻；未揭露持股、現金、費用與交易影響仍可能造成基金回撤。")
+            else:
+                losses["虧損說明"] = losses.apply(
+                    lambda row: f"股價區間下跌 {abs(row['區間報酬']):.2f}%，平均權重 {(row['期初權重'] + row['期末權重']) / 2:.2f}%，估計拖累 {abs(row['估計貢獻']):.2f} 個百分點；持股{row['動作']}。", axis=1
+                )
+                st.dataframe(losses[holding_columns + ["虧損說明"]], hide_index=True, column_config=holding_config)
+    st.caption("估計貢獻＝期初與期末平均權重 × 個股區間報酬；僅涵蓋已揭露且取得市場價格的持股，未納入日內交易、現金、費用及衍生工具。虧損說明不推測未經證實的事件原因。")
 
 with tabs[4]:
     st.subheader("同類基金指標比較")
@@ -308,5 +321,5 @@ with tabs[5]:
         "基金規模": "—" if pd.isna(latest_size) else f"{latest_size:,.1f} 億",
     }}
     st.write(conclusion)
-    report = build_report(fund, f"{start_date} 至 {end_date}", summary, changes, themes, peers, notes, source, industry_supplement)
+    report = build_report(fund, f"{start_date} 至 {end_date}", summary, changes, themes, peers, notes, source, industry_supplement, holding_period)
     st.download_button("下載 Word 分析報告", report, file_name=f"{fund}_基金分析報告.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", icon=":material/download:", type="primary")

@@ -15,7 +15,7 @@ from fund_analysis import (
 from report_builder import build_report
 
 
-MAPPING_CACHE_VERSION = "2026-09-22-jinju-copper-foil"
+MAPPING_CACHE_VERSION = "2026-09-22-ase-chroma-classification"
 
 
 FUND_INDUSTRY_SUPPLEMENTS = {

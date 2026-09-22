@@ -22,7 +22,7 @@ def _add_table(doc: Document, df: pd.DataFrame, columns: list[str], limit: int =
 
 def build_report(fund: str, period: str, summary: dict, changes: pd.DataFrame,
                  themes: pd.DataFrame, peers: pd.DataFrame, notes: str, source: str,
-                 industry_supplement: pd.DataFrame | None = None) -> bytes:
+                 industry_supplement: pd.DataFrame | None = None, holding_period: str = "未提供") -> bytes:
     doc = Document()
     title = doc.add_heading("基金分析報告", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -45,11 +45,28 @@ def build_report(fund: str, period: str, summary: dict, changes: pd.DataFrame,
         _add_table(doc, industry_supplement, ["配置類型", "產業／題材", "權重", "資料日期", "個股明細"], 15)
         doc.add_paragraph("此為基金整體產業配置，不是單一個股；個股明細未揭露，因此不納入持股變化與獲利／虧損歸因。")
 
-    doc.add_heading("獲利貢獻", level=1)
-    winners = changes.sort_values("估計貢獻", ascending=False)
-    _add_table(doc, winners, ["ticker", "name", "theme", "區間報酬", "估計貢獻"], 10)
-    doc.add_heading("虧損拖累", level=1)
-    _add_table(doc, winners.sort_values("估計貢獻"), ["ticker", "name", "區間報酬", "估計貢獻"], 10)
+    doc.add_heading("持股損益歸因", level=1)
+    doc.add_paragraph(f"淨值分析期間：{period}；持股市場報酬來源期間：{holding_period}。兩者可能不同，個股估計貢獻無法完整解釋基金損益。")
+    valid = changes.dropna(subset=["估計貢獻"])
+    winners = valid.loc[valid["估計貢獻"] > 0].sort_values("估計貢獻", ascending=False)
+    losers = valid.loc[valid["估計貢獻"] < 0].sort_values("估計貢獻")
+    doc.add_heading("獲利貢獻", level=2)
+    if winners.empty:
+        doc.add_paragraph("可計算的揭露持股中，沒有正估計貢獻。")
+    else:
+        _add_table(doc, winners, ["ticker", "name", "theme", "區間報酬", "估計貢獻"], 10)
+    doc.add_heading("虧損拖累", level=2)
+    if losers.empty:
+        doc.add_paragraph("可計算的揭露持股中，沒有負估計貢獻；未揭露持股、現金、費用與交易影響仍可能造成基金回撤。")
+    else:
+        _add_table(doc, losers, ["ticker", "name", "theme", "區間報酬", "估計貢獻", "動作"], 10)
+        for _, row in losers.head(10).iterrows():
+            average_weight = (row["期初權重"] + row["期末權重"]) / 2
+            doc.add_paragraph(
+                f"{row['name']}：股價區間下跌 {abs(row['區間報酬']):.2f}%，平均權重 {average_weight:.2f}%，"
+                f"估計拖累 {abs(row['估計貢獻']):.2f} 個百分點；持股{row['動作']}。"
+            )
+    doc.add_paragraph("虧損說明只根據個股價格和持股權重，不推測未經證實的事件原因。")
 
     doc.add_heading("同類基金比較", level=1)
     _add_table(doc, peers, ["基金", "區間報酬", "年化波動", "最大回撤", "Sharpe"], 15)

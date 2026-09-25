@@ -210,8 +210,11 @@ with tabs[0]:
             st.bar_chart(sectors.head(10), x="sector", y="期末權重")
 
 with tabs[1]:
-    action = st.multiselect("篩選動作", ["新進", "加碼", "持平", "減碼", "出清"], default=["新進", "加碼", "減碼", "出清"])
+    action = st.multiselect("篩選動作", ["新進", "加碼", "持平", "減碼", "出清"], default=["新進", "加碼", "持平", "減碼", "出清"])
+    st.caption(f"持股資料期間：{holding_period}；持股揭露日期可能與上方淨值分析期間不同。")
     view = changes[changes["動作"].isin(action)]
+    if view.empty:
+        st.info("目前篩選條件下沒有持股；可選取「持平」或清除篩選條件查看。")
     st.dataframe(view, hide_index=True, column_config={
         "期初權重": st.column_config.NumberColumn(format="%.2f%%"), "期末權重": st.column_config.NumberColumn(format="%.2f%%"),
         "權重變化": st.column_config.NumberColumn(format="%+.2f%%"), "區間報酬": st.column_config.NumberColumn(format="%+.2f%%"),
